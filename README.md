@@ -29,7 +29,7 @@ Slot window comes from env: `OPEN_FROM` (first out-of-hours slot, **set this to 
 
 1. **Code:** `npm install`, copy `.env.example` to `.env.local`.
 2. **Supabase:** create a project, run `supabase/schema.sql` in the SQL editor, then copy the URL and service role key.
-3. **Stripe:** copy the secret key. Locally, run `stripe listen --forward-to localhost:3000/api/stripe/webhook` for the signing secret. In production, add a webhook for `checkout.session.completed` and `checkout.session.expired` pointing at `https://YOUR-DOMAIN/api/stripe/webhook`.
+3. **Stripe:** copy the secret key. Locally, run `stripe listen --forward-to localhost:3000/api/stripe/webhook` for the signing secret. In production, add a webhook for `checkout.session.completed`, `checkout.session.expired`, `checkout.session.async_payment_succeeded` and `checkout.session.async_payment_failed` pointing at `https://YOUR-DOMAIN/api/stripe/webhook`. Bookings are same-evening, so in Settings → Payment methods turn off delayed methods like Bacs Direct Debit. Each paid checkout creates an invoice; turn on "Email finalized invoices to customers" in Settings → Customer emails so customers receive it.
 4. **Telegram:**
    - Create a bot with @BotFather and copy the token.
    - Make a group with you and the two barbers, add the bot, send a message, then open `https://api.telegram.org/bot<TOKEN>/getUpdates` to find the group's chat id (it starts with `-100`).

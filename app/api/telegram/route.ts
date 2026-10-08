@@ -24,8 +24,13 @@ export async function POST(req: Request) {
     const b = name ? await assign(id, name) : null;
     await answerCallback(cq.id, b ? `Assigned to ${name}. Customer texted.` : "Already taken or refunded");
   } else if (action === "refund") {
-    const b = await refund(id);
-    await answerCallback(cq.id, b ? "Refunded. Customer texted." : "Already handled");
+    try {
+      const b = await refund(id);
+      await answerCallback(cq.id, b ? "Refunded. Customer texted." : "Already handled");
+    } catch (e) {
+      console.error(`Refund failed for booking ${id}`, e);
+      await answerCallback(cq.id, "Refund failed. Try again or refund it in Stripe.");
+    }
   }
   return NextResponse.json({ ok: true });
 }

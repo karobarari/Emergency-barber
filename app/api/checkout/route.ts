@@ -51,8 +51,10 @@ export async function POST(req: Request) {
     metadata: { booking_id: booking.id },
     payment_intent_data: { metadata: { booking_id: booking.id }, description: `${SHOP.name} ${fmtTime(slot)}` },
     expires_at: Math.floor(Date.now() / 1000) + 30 * 60, // Stripe's minimum; frees the slot if abandoned
+    // Stripe emails a paid invoice (with PDF) to the email entered at checkout.
+    invoice_creation: { enabled: true, invoice_data: { metadata: { booking_id: booking.id } } },
     success_url: `${site}/booking/${booking.id}`,
-    cancel_url: `${site}/?cancelled=1`,
+    cancel_url: `${site}/api/checkout/cancel?booking=${booking.id}`,
     });
   } catch (e) {
     console.error("Stripe checkout failed", e);

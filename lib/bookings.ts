@@ -6,15 +6,19 @@ import { stripe } from "./stripe";
 import { db, type Booking, type Status } from "./supabase";
 import { sendBookingAlert, updateBookingAlert } from "./telegram";
 
-/** Moves a booking from one status to another only if it's still in `from`, so two barbers can't both claim it. */
+/**
+ * Moves a booking from one status to another only if it's still in `from`, so two barbers can't both claim it.
+ * Returns null if the booking wasn't in `from`. Throws on database errors so callers (and Stripe) can retry.
+ */
 async function transition(id: string, from: Status[], patch: Partial<Booking>) {
-  const { data } = await db()
+  const { data, error } = await db()
     .from("bookings")
     .update(patch)
     .eq("id", id)
     .in("status", from)
     .select()
     .maybeSingle();
+  if (error) throw new Error(`Booking ${id} update failed: ${error.message}`);
   return data as Booking | null;
 }
 
@@ -22,9 +26,18 @@ async function transition(id: string, from: Status[], patch: Partial<Booking>) {
 export async function markPaid(id: string, paymentIntent: string | null) {
   const b = await transition(id, ["pending"], { status: "new", payment_intent: paymentIntent });
   if (!b) return;
-  const msgId = await sendBookingAlert(b);
-  if (msgId) await db().from("bookings").update({ telegram_message_id: msgId }).eq("id", id);
-  await sendSms(b.phone, `${SHOP.name}: payment received for ${fmtTime(b.slot_at)}. We'll text you as soon as your barber is confirmed.`);
+  // The booking is already paid, so a Stripe retry would skip these. Log failures instead of throwing.
+  try {
+    const msgId = await sendBookingAlert(b);
+    if (msgId) await db().from("bookings").update({ telegram_message_id: msgId }).eq("id", id);
+  } catch (e) {
+    console.error(`Telegram alert failed for booking ${id}`, e);
+  }
+  try {
+    await sendSms(b.phone, `${SHOP.name}: payment received for ${fmtTime(b.slot_at)}. We'll text you as soon as your barber is confirmed.`);
+  } catch (e) {
+    console.error(`Payment SMS failed for booking ${id}`, e);
+  }
 }
 
 export async function assign(id: string, barber: string) {
@@ -41,7 +54,15 @@ export async function assign(id: string, barber: string) {
 export async function refund(id: string) {
   const b = await transition(id, ["new", "confirmed"], { status: "refunded" });
   if (!b) return null;
-  if (b.payment_intent) await stripe().refunds.create({ payment_intent: b.payment_intent });
+  if (b.payment_intent) {
+    try {
+      await stripe().refunds.create({ payment_intent: b.payment_intent }, { idempotencyKey: `refund-${id}` });
+    } catch (e) {
+      // Undo the claim so someone can try again. A barber is only set once the booking is confirmed.
+      await transition(id, ["refunded"], { status: b.barber ? "confirmed" : "new" });
+      throw e;
+    }
+  }
   await updateBookingAlert(b);
   await sendSms(b.phone, `${SHOP.name}: sorry, no barber is free for ${fmtTime(b.slot_at)}. We've refunded ${gbp(b.total)} to your card.`);
   return b;
