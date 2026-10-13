@@ -6,7 +6,10 @@ import { stripe } from "@/lib/stripe";
 import { db } from "@/lib/supabase";
 import { freeSlots } from "@/lib/taken";
 
-const bad = (error: string) => NextResponse.json({ error }, { status: 400 });
+const bad = (error: string) => {
+  console.warn("Checkout rejected:", error);
+  return NextResponse.json({ error }, { status: 400 });
+};
 
 export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}));
@@ -35,8 +38,12 @@ export async function POST(req: Request) {
     })
     .select()
     .single();
-  // A unique-index clash means someone grabbed the slot a moment ago.
-  if (error || !booking) return bad("That time has just gone. Pick another slot.");
+  // A unique-index clash (23505) means someone grabbed the slot a moment ago.
+  if (error?.code === "23505") return bad("That time has just gone. Pick another slot.");
+  if (error || !booking) {
+    console.error("Booking insert failed", error);
+    return NextResponse.json({ error: "Couldn't save your booking. Try again in a moment." }, { status: 500 });
+  }
 
   const site = process.env.SITE_URL || new URL(req.url).origin;
   let session: Awaited<ReturnType<ReturnType<typeof stripe>["checkout"]["sessions"]["create"]>>;
