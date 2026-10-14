@@ -35,13 +35,18 @@ const keyboard = (b: Booking) =>
 
 /** Sends the alert to the barbers' group. Returns the message id. */
 export async function sendBookingAlert(b: Booking): Promise<number | null> {
-  if (!process.env.TELEGRAM_BOT_TOKEN) return null;
+  if (!process.env.TELEGRAM_BOT_TOKEN) {
+    console.warn(`TELEGRAM_BOT_TOKEN not set, skipping alert for booking ${b.id}`);
+    return null;
+  }
   const res = await api("sendMessage", {
     chat_id: process.env.TELEGRAM_CHAT_ID,
     text: bookingText(b),
     reply_markup: keyboard(b),
   });
-  return res?.result?.message_id ?? null;
+  // Telegram reports errors (bad chat id, bot removed from group) in the body, not as a thrown error.
+  if (!res?.ok) throw new Error(`Telegram sendMessage failed (chat ${process.env.TELEGRAM_CHAT_ID}): ${res?.description}`);
+  return res.result.message_id;
 }
 
 /** Rewrites the alert so everyone in the group sees who took the job. */
