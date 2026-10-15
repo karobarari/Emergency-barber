@@ -53,10 +53,10 @@ These close the gaps between the one-pager's promises and what the code does. Do
 1. ✅ **Customer cancellation.** Done 15 Oct: tested full refund, £50 kept after confirm, and nothing back inside 30 min. A cancel button on the status page and a link in the text. Applies the one-pager rules automatically: full refund before a barber confirms; service price back but £50 kept if 30+ min before; nothing back under 30 min. Uses Stripe partial refunds.
 2. ✅ **Rules shown at payment.** Done 15 Oct: tick box gates Pay, agreement time stored, rules on Stripe Checkout, status page and texts (15 min lateness grace). Cancellation and lateness rules on step 4 with a tick box, and repeated in the confirmation text.
 3. ✅ **Terms, refund policy and privacy notice pages.** Done 15 Oct: /terms, /refunds, /privacy, linked from the footer and the step 4 tick box. You store names and phone numbers, so UK GDPR applies.
-4. 🧪 **No-barber timeout.** Built 15 Oct, needs a live test: Supabase pg_cron calls /api/cron every 2 min; re-ping at 10 min, refund at 20. If nobody taps Assign within about 10 minutes, re-ping the Telegram group; after 20 minutes, auto-refund and text the customer.
+4. ✅ **No-barber timeout.** Done 15 Oct, tested live (reminder at 11 min, full refund at 21½ min): Supabase pg_cron calls /api/cron every 2 min; re-ping at 10 min, refund at 20. If nobody taps Assign within about 10 minutes, re-ping the Telegram group; after 20 minutes, auto-refund and text the customer.
 5. 🧪 **Reminder text** Built 15 Oct, needs a live test once Twilio is set up: sent by the same /api/cron job. 30 minutes before the slot, with directions.
 6. 🧪 **Booking confirmation email** Built 15 Oct: the Stripe invoice email carries the booking details and track/cancel link. Needs "Successful payments" and "Refunds" emails switched on in Stripe → Settings → Customer emails. with a Stripe receipt, which also covers business customers who need an invoice.
-7. 🧪 **Error alerts.** Built 15 Oct: reportError posts to TELEGRAM_ALERT_CHAT_ID, or the group if unset. Send failed webhooks or Stripe errors to the Telegram group so nothing fails silently.
+7. ✅ **Error alerts.** Done 15 Oct, tested live: reportError posts to Karo's private chat (TELEGRAM_ALERT_CHAT_ID). Send failed webhooks or Stripe errors to the Telegram group so nothing fails silently.
 
 ## Phase 2: Running the nights (month 2)
 
