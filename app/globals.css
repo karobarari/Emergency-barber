@@ -99,3 +99,7 @@ input.t{width:100%;font:inherit;padding:13px 14px;border-radius:10px;border:1px 
 .rules li{margin:4px 0}
 .agree{display:flex;gap:10px;align-items:flex-start;margin-top:14px;font-weight:600;font-size:.92rem;cursor:pointer}
 .agree input{width:20px;height:20px;margin:1px 0 0;accent-color:var(--accent);flex:none}
+.legal p{margin:8px 0 0;line-height:1.55}
+.agree a{color:var(--accent)}
+.foot{max-width:560px;margin:0 auto;padding:0 16px 32px;font-size:.82rem;color:var(--muted);text-align:center}
+.foot a{color:var(--muted)}

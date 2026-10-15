@@ -121,7 +121,10 @@ export default function BookingFlow({ services, lateFee, shop, address, maps, ru
       <ul className="rules">{rules.map((r) => <li key={r}>{r}</li>)}</ul>
       <label className="agree">
         <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} />
-        <span>I agree to the cancellation and lateness rules</span>
+        <span>
+          I agree to these rules and the <a href="/terms" target="_blank" rel="noopener">terms</a>. See how we use your details in
+          our <a href="/privacy" target="_blank" rel="noopener">privacy notice</a>.
+        </span>
       </label>
       <button className="btn" disabled={busy || !agreed} onClick={pay}>{busy ? "Opening secure payment…" : `Pay ${svc && gbp(svc.price + lateFee)}`}</button>
       <button className="back" onClick={() => { setError(""); setStep(3); }}>← Edit details</button>

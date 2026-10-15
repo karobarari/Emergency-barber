@@ -1,0 +1,51 @@
+import type { Metadata } from "next";
+import { gbp, LATE_FEE, OPERATOR, RULES, SHOP, SLOTS } from "@/lib/config";
+
+export const metadata: Metadata = { title: `Terms · ${OPERATOR.trading}` };
+
+export default function Terms() {
+  return (
+    <main className="wrap legal">
+      <h2>Terms of booking</h2>
+      <p className="lead">Last updated 15 October 2026</p>
+
+      <div className="h3">Who we are</div>
+      <p>
+        {OPERATOR.trading} is run by {OPERATOR.name}, a sole trader, from {SHOP.name}, {SHOP.address}. Contact us
+        at <a href={`mailto:${OPERATOR.email}`}>{OPERATOR.email}</a> or by replying to any of our texts.
+      </p>
+
+      <div className="h3">The service</div>
+      <p>
+        We open {SHOP.name} out of hours for a haircut booked at short notice. You book at least {SLOTS.noticeMins / 60} hour
+        ahead, and the latest slot is midnight. Every booking includes a {gbp(LATE_FEE)} late booking fee, because a barber
+        opens the shop specially for you.
+      </p>
+
+      <div className="h3">Paying</div>
+      <p>
+        You pay the full price when you book. Payments are handled by Stripe; we never see or store your card details.
+        Your booking is confirmed when a barber accepts it, and we text you who is opening up.
+      </p>
+
+      <div className="h3">If no barber is free</div>
+      <p>If no barber can take your booking, we cancel it and refund everything you paid.</p>
+
+      <div className="h3">Cancelling and lateness</div>
+      <ul className="rules">{RULES.map((r) => <li key={r}>{r}</li>)}</ul>
+      <p>
+        Cancel from the link in your booking text or on your booking page. See the <a href="/refunds">refund policy</a> for
+        how refunds are paid.
+      </p>
+
+      <div className="h3">If we cancel</div>
+      <p>If we have to cancel after a barber has confirmed, you get everything back, including the late booking fee.</p>
+
+      <div className="h3">Your rights</div>
+      <p>
+        Nothing in these terms affects your statutory rights. These terms are governed by the law of England and Wales.
+        How we handle your details is set out in our <a href="/privacy">privacy notice</a>.
+      </p>
+    </main>
+  );
+}

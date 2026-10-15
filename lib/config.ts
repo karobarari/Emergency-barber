@@ -4,6 +4,14 @@ export const SHOP = {
   timeZone: "Europe/London",
 };
 
+/** Who runs the service, for the terms and privacy notice. */
+export const OPERATOR = {
+  name: "Karo Barari",
+  trading: "Emergency Barber",
+  email: "karobarari@gmail.com",
+  retentionYears: 6, // HMRC wants financial records kept for 6 years
+};
+
 export const LATE_FEE = 50_00; // pence
 export const CANCEL_CUTOFF_MINS = 30;
 export const LATE_GRACE_MINS = 15;
