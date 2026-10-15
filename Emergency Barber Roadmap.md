@@ -34,7 +34,7 @@ Alongside the code, the **Manchester one-pager** sets the offer, target users, p
 No new features. The goal is one real paid booking going through end to end.
 
 - [ ] Agree out-of-hours use with the FadeMasters owner: keys, alarm code, and insurance cover while the shop is closed
-- [ ] Set `OPEN_FROM` to the shop's real closing time
+- [x] Set `OPEN_FROM` to the shop's real closing time (19:00)
 - [x] Replace `Barber 2` and `Barber 3` in `BARBER_NAMES` with the two lads' names (Joe, Oscar)
 - [x] Put the code in a GitHub repo
 - [x] Create Supabase project and run `schema.sql`
@@ -42,7 +42,7 @@ No new features. The goal is one real paid booking going through end to end.
 - [x] Telegram bot and barbers' group, webhook registered
 - [x] Deploy to Vercel: live at emergency-barber.vercel.app, auto-deploys from `main`
 - [ ] Custom domain
-- [ ] Full test run with card 4242 4242 4242 4242: booking → alert → assign → status page
+- [x] Full test run with card 4242 4242 4242 4242: booking → alert → assign → status page
 - [ ] Twilio UK sender set up so customers actually get texts
 - [ ] Switch Stripe to live keys, make one real booking on your own card and refund it
 
