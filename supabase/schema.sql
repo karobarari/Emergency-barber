@@ -13,11 +13,12 @@ create table if not exists bookings (
   late_fee            int  not null,          -- pence
   total               int  not null,          -- pence
   status              text not null default 'pending'
-                      check (status in ('pending','new','confirmed','done','refunded','expired')),
+                      check (status in ('pending','new','confirmed','done','refunded','expired','cancelled')),
   barber              text,
   stripe_session_id   text,
   payment_intent      text,
-  telegram_message_id bigint
+  telegram_message_id bigint,
+  refund_amount       int                     -- pence, set when the customer cancels
 );
 
 -- One customer per slot. Pending rows hold the slot while the customer is on Stripe;

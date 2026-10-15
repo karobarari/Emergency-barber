@@ -1,7 +1,7 @@
 import "server-only";
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 
-export type Status = "pending" | "new" | "confirmed" | "done" | "refunded" | "expired";
+export type Status = "pending" | "new" | "confirmed" | "done" | "refunded" | "expired" | "cancelled";
 
 export type Booking = {
   id: string;
@@ -19,6 +19,7 @@ export type Booking = {
   stripe_session_id: string | null;
   payment_intent: string | null;
   telegram_message_id: number | null;
+  refund_amount: number | null; // pence, set when the customer cancels
 };
 
 let client: SupabaseClient | null = null;

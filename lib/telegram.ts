@@ -20,6 +20,7 @@ export function bookingText(b: Booking) {
   if (b.status === "confirmed") lines.push(`\n✅ ${b.barber} is taking this`);
   if (b.status === "refunded") lines.push(`\n↩️ Refunded, nobody free`);
   if (b.status === "done") lines.push(`\n✔️ Done (${b.barber})`);
+  if (b.status === "cancelled") lines.push(`\n🚫 Cancelled by customer · refunded ${gbp(b.refund_amount ?? 0)}`);
   return lines.join("\n");
 }
 

@@ -18,7 +18,7 @@ async function act(form: FormData) {
 }
 
 const LABEL: Record<string, string> = {
-  new: "Needs barber", confirmed: "Confirmed", done: "Done", refunded: "Refunded",
+  new: "Needs barber", confirmed: "Confirmed", done: "Done", refunded: "Refunded", cancelled: "Cancelled",
 };
 
 export default async function Admin() {
@@ -27,12 +27,13 @@ export default async function Admin() {
     .from("bookings")
     .select("*")
     .gte("slot_at", since)
-    .in("status", ["new", "confirmed", "done", "refunded"])
+    .in("status", ["new", "confirmed", "done", "refunded", "cancelled"])
     .order("slot_at");
   const rows = (data || []) as Booking[];
   const live = rows.filter((b) => b.status === "new" || b.status === "confirmed");
-  const past = rows.filter((b) => b.status === "done" || b.status === "refunded");
-  const taken = rows.filter((b) => b.status !== "refunded").reduce((a, b) => a + b.total, 0);
+  const past = rows.filter((b) => b.status === "done" || b.status === "refunded" || b.status === "cancelled");
+  // Cancellations keep whatever wasn't refunded (the late fee, or everything inside 30 min).
+  const taken = rows.filter((b) => b.status !== "refunded").reduce((a, b) => a + b.total - (b.refund_amount ?? 0), 0);
 
   const card = (b: Booking) => (
     <div key={b.id} className={`card ${b.status === "new" ? "new" : ""}`}>
@@ -41,7 +42,7 @@ export default async function Admin() {
         <span className={`pill ${b.status}`}>{LABEL[b.status]}</span>
       </div>
       <div><b>{b.name}</b> · {b.service_name} · <span className="price">{gbp(b.total)}</span></div>
-      <div className="cmeta">{b.phone}{b.barber ? ` · ${b.barber}` : ""}</div>
+      <div className="cmeta">{b.phone}{b.barber ? ` · ${b.barber}` : ""}{b.status === "cancelled" ? ` · refunded ${gbp(b.refund_amount ?? 0)}` : ""}</div>
       {b.status === "new" && (
         <>
           <div className="assign">

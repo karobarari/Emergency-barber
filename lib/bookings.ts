@@ -34,7 +34,11 @@ export async function markPaid(id: string, paymentIntent: string | null) {
     console.error(`Telegram alert failed for booking ${id}`, e);
   }
   try {
-    await sendSms(b.phone, `${SHOP.name}: payment received for ${fmtTime(b.slot_at)}. We'll text you as soon as your barber is confirmed.`);
+    await sendSms(
+      b.phone,
+      `${SHOP.name}: payment received for ${fmtTime(b.slot_at)}. We'll text you as soon as your barber is confirmed. ` +
+        `Track or cancel: ${process.env.SITE_URL}/booking/${b.id}`,
+    );
   } catch (e) {
     console.error(`Payment SMS failed for booking ${id}`, e);
   }
@@ -66,6 +70,58 @@ export async function refund(id: string) {
   await updateBookingAlert(b);
   await sendSms(b.phone, `${SHOP.name}: sorry, no barber is free for ${fmtTime(b.slot_at)}. We've refunded ${gbp(b.total)} to your card.`);
   return b;
+}
+
+const CANCEL_CUTOFF_MINS = 30;
+
+/**
+ * What a customer gets back if they cancel now, or null if they can't cancel.
+ * Before a barber confirms: everything. Confirmed with 30+ min to go: the service price, the late fee is kept
+ * because a barber has committed to opening up. Under 30 min: nothing.
+ */
+export function cancelQuote(b: Booking, now = Date.now()): number | null {
+  const minsLeft = (new Date(b.slot_at).getTime() - now) / 60e3;
+  if (minsLeft <= 0) return null;
+  if (b.status === "new") return b.total;
+  if (b.status === "confirmed") return minsLeft >= CANCEL_CUTOFF_MINS ? b.service_price : 0;
+  return null;
+}
+
+export type CancelResult = { ok: true; booking: Booking } | { ok: false; quote: number | null };
+
+/**
+ * Cancels for the customer. `expected` is the refund they were shown; if the quote has moved since
+ * (a barber confirmed, or the cut-off passed), nothing happens and the new quote comes back.
+ */
+export async function cancel(id: string, expected: number): Promise<CancelResult> {
+  const { data } = await db().from("bookings").select("*").eq("id", id).maybeSingle();
+  const current = data as Booking | null;
+  const quote = current ? cancelQuote(current) : null;
+  if (!current || quote === null || quote !== expected) return { ok: false, quote };
+
+  // Only from the status we quoted on, so a barber tapping Assign at the same moment can't slip past the quote.
+  const b = await transition(id, [current.status], { status: "cancelled", refund_amount: quote });
+  if (!b) return { ok: false, quote: null };
+  if (quote > 0 && b.payment_intent) {
+    try {
+      await stripe().refunds.create({ payment_intent: b.payment_intent, amount: quote }, { idempotencyKey: `cancel-${id}` });
+    } catch (e) {
+      await transition(id, ["cancelled"], { status: current.status, refund_amount: null });
+      throw e;
+    }
+  }
+
+  try {
+    await updateBookingAlert(b);
+  } catch (e) {
+    console.error(`Telegram update failed for cancelled booking ${id}`, e);
+  }
+  await sendSms(
+    b.phone,
+    `${SHOP.name}: your ${fmtTime(b.slot_at)} booking is cancelled. ` +
+      (quote > 0 ? `${gbp(quote)} is on its way back to your card.` : "No refund is due as it was within 30 minutes."),
+  );
+  return { ok: true, booking: b };
 }
 
 export async function complete(id: string) {
