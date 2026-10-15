@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { assign, refund } from "@/lib/bookings";
 import { barbers } from "@/lib/config";
-import { answerCallback } from "@/lib/telegram";
+import { answerCallback, reportError } from "@/lib/telegram";
 
 // Telegram calls this when someone taps a button on a booking alert.
 export async function POST(req: Request) {
@@ -28,7 +28,7 @@ export async function POST(req: Request) {
       const b = await refund(id);
       await answerCallback(cq.id, b ? "Refunded. Customer texted." : "Already handled");
     } catch (e) {
-      console.error(`Refund failed for booking ${id}`, e);
+      await reportError(`Refund from Telegram failed for booking ${id}`, e);
       await answerCallback(cq.id, "Refund failed. Try again or refund it in Stripe.");
     }
   }

@@ -4,6 +4,7 @@ import { cancel, cancelQuote } from "@/lib/bookings";
 import { gbp, mapsUrl, RULES, SHOP } from "@/lib/config";
 import { fmtTime } from "@/lib/slots";
 import { db, type Booking } from "@/lib/supabase";
+import { reportError } from "@/lib/telegram";
 
 export const dynamic = "force-dynamic";
 
@@ -16,7 +17,7 @@ async function cancelBooking(form: FormData) {
     const r = await cancel(id, Number(form.get("expected")));
     if (!r.ok) to += "?cancel=1&changed=1";
   } catch (e) {
-    console.error(`Customer cancel failed for booking ${id}`, e);
+    await reportError(`Customer cancel failed for booking ${id}`, e);
     to += "?cancel=1&failed=1";
   }
   redirect(to);

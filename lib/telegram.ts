@@ -77,5 +77,23 @@ export async function sendReminder(b: Booking, refundInMins: number): Promise<nu
   return null;
 }
 
-export const answerCallback =(id: string, text: string) =>
+export const answerCallback = (id: string, text: string) =>
   api("answerCallbackQuery", { callback_query_id: id, text });
+
+/**
+ * Logs an error and posts it to Telegram so nothing fails silently. Goes to TELEGRAM_ALERT_CHAT_ID if set
+ * (e.g. a private chat with Karo), otherwise the barbers' group. Never throws.
+ */
+export async function reportError(where: string, e: unknown) {
+  console.error(where, e);
+  const chat = process.env.TELEGRAM_ALERT_CHAT_ID || process.env.TELEGRAM_CHAT_ID;
+  if (!process.env.TELEGRAM_BOT_TOKEN || !chat) return;
+  // Supabase errors are plain objects with a message, not Error instances.
+  const msg = e instanceof Error ? e.message : (e as { message?: unknown })?.message;
+  const detail = String(msg ?? e).slice(0, 500);
+  try {
+    await api("sendMessage", { chat_id: chat, text: `⚠️ ${where}\n${detail}` });
+  } catch (sendErr) {
+    console.error("Couldn't post error alert to Telegram", sendErr);
+  }
+}

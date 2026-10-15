@@ -1,10 +1,10 @@
 import "server-only";
-import { CANCEL_CUTOFF_MINS, gbp, LATE_GRACE_MINS, mapsUrl, NO_BARBER, SHOP } from "./config";
+import { CANCEL_CUTOFF_MINS, gbp, LATE_GRACE_MINS, mapsUrl, NO_BARBER, SHOP, SLOT_REMINDER_MINS } from "./config";
 import { fmtTime } from "./slots";
 import { sendSms } from "./sms";
 import { stripe } from "./stripe";
 import { db, type Booking, type Status } from "./supabase";
-import { sendBookingAlert, sendReminder, updateBookingAlert } from "./telegram";
+import { reportError, sendBookingAlert, sendReminder, updateBookingAlert } from "./telegram";
 
 /**
  * Moves a booking from one status to another only if it's still in `from`, so two barbers can't both claim it.
@@ -31,7 +31,7 @@ export async function markPaid(id: string, paymentIntent: string | null) {
     const msgId = await sendBookingAlert(b);
     if (msgId) await db().from("bookings").update({ telegram_message_id: msgId }).eq("id", id);
   } catch (e) {
-    console.error(`Telegram alert failed for booking ${id}`, e);
+    await reportError(`Telegram alert failed for booking ${id}`, e);
   }
   try {
     await sendSms(
@@ -41,7 +41,7 @@ export async function markPaid(id: string, paymentIntent: string | null) {
         `Track or cancel: ${process.env.SITE_URL}/booking/${b.id}`,
     );
   } catch (e) {
-    console.error(`Payment SMS failed for booking ${id}`, e);
+    await reportError(`Payment text failed for booking ${id}`, e);
   }
 }
 
@@ -114,7 +114,7 @@ export async function cancel(id: string, expected: number): Promise<CancelResult
   try {
     await updateBookingAlert(b);
   } catch (e) {
-    console.error(`Telegram update failed for cancelled booking ${id}`, e);
+    await reportError(`Telegram update failed for cancelled booking ${id}`, e);
   }
   await sendSms(
     b.phone,
@@ -166,9 +166,41 @@ export async function chaseUnclaimed(now = Date.now()) {
         }
       }
     } catch (e) {
-      console.error(`No-barber check failed for booking ${b.id}`, e);
+      await reportError(`No-barber check failed for booking ${b.id}`, e);
       result.failed++;
     }
   }
   return result;
+}
+
+/** Runs every couple of minutes. Texts each confirmed customer once, shortly before their slot, with directions. */
+export async function remindCustomers(now = Date.now()) {
+  const { data, error } = await db()
+    .from("bookings")
+    .select("*")
+    .eq("status", "confirmed")
+    .is("slot_reminded_at", null)
+    .gt("slot_at", new Date(now).toISOString())
+    .lte("slot_at", new Date(now + SLOT_REMINDER_MINS * 60e3).toISOString());
+  if (error) throw new Error(`Reminder query failed: ${error.message}`);
+
+  let sent = 0;
+  for (const b of (data || []) as Booking[]) {
+    // Claim it first so two overlapping runs can't both text the customer.
+    const { data: claimed } = await db()
+      .from("bookings")
+      .update({ slot_reminded_at: new Date(now).toISOString() })
+      .eq("id", b.id)
+      .is("slot_reminded_at", null)
+      .select("id")
+      .maybeSingle();
+    if (!claimed) continue;
+    await sendSms(
+      b.phone,
+      `${SHOP.name}: see you at ${fmtTime(b.slot_at)}. ${b.barber} is opening up at ${SHOP.address}. ` +
+        `Directions: ${mapsUrl()} Running late? Reply to let us know. After ${LATE_GRACE_MINS} min the barber may leave.`,
+    );
+    sent++;
+  }
+  return sent;
 }

@@ -1,4 +1,5 @@
 import "server-only";
+import { reportError } from "./telegram";
 
 /** Normalises a UK mobile to E.164 (+447...). Returns null if it isn't one. */
 export function ukMobile(input: string): string | null {
@@ -9,20 +10,25 @@ export function ukMobile(input: string): string | null {
   return /^07\d{9}$/.test(n) ? "+44" + n.slice(1) : null;
 }
 
-/** Sends an SMS via Twilio. Skips quietly when Twilio isn't configured (testing). */
+/** Sends an SMS via Twilio. Skips quietly when Twilio isn't configured (testing); reports failures to Telegram. */
 export async function sendSms(to: string, body: string) {
   const { TWILIO_ACCOUNT_SID: sid, TWILIO_AUTH_TOKEN: token, TWILIO_FROM: from } = process.env;
   if (!sid || !token || !from) {
     console.log(`[sms skipped] to ${to}: ${body}`);
     return;
   }
-  const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`, {
-    method: "POST",
-    headers: {
-      Authorization: "Basic " + Buffer.from(`${sid}:${token}`).toString("base64"),
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
-    body: new URLSearchParams({ To: to, From: from, Body: body }),
-  });
-  if (!res.ok) console.error("Twilio error", res.status, await res.text());
+  // Never throws: a failed text shouldn't undo a booking change that has already happened.
+  try {
+    const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`, {
+      method: "POST",
+      headers: {
+        Authorization: "Basic " + Buffer.from(`${sid}:${token}`).toString("base64"),
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({ To: to, From: from, Body: body }),
+    });
+    if (!res.ok) await reportError(`Text to ${to} failed (Twilio ${res.status})`, await res.text());
+  } catch (e) {
+    await reportError(`Text to ${to} failed`, e);
+  }
 }

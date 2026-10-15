@@ -21,7 +21,8 @@ create table if not exists bookings (
   refund_amount       int,                    -- pence, set when the customer cancels
   terms_accepted_at   timestamptz,            -- when they ticked the rules box at payment
   paid_at             timestamptz,            -- when Stripe confirmed payment; starts the no-barber clock
-  reminded_at         timestamptz             -- when the group was re-pinged about an unclaimed booking
+  reminded_at         timestamptz,            -- when the group was re-pinged about an unclaimed booking
+  slot_reminded_at    timestamptz             -- when the customer got the 30-min reminder text
 );
 
 -- One customer per slot. Pending rows hold the slot while the customer is on Stripe;

@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
-import { CANCEL_CUTOFF_MINS, LATE_FEE, LATE_GRACE_MINS, SERVICES, SHOP, gbp } from "@/lib/config";
-import { fmtTime } from "@/lib/slots";
+import { CANCEL_CUTOFF_MINS, gbp, LATE_FEE, LATE_GRACE_MINS, OPERATOR, SERVICES, SHOP } from "@/lib/config";
+import { fmtDay, fmtTime } from "@/lib/slots";
 import { ukMobile } from "@/lib/sms";
 import { stripe } from "@/lib/stripe";
 import { db } from "@/lib/supabase";
+import { reportError } from "@/lib/telegram";
 import { freeSlots } from "@/lib/taken";
 
 const bad = (error: string) => {
@@ -43,7 +44,7 @@ export async function POST(req: Request) {
   // A unique-index clash (23505) means someone grabbed the slot a moment ago.
   if (error?.code === "23505") return bad("That time has just gone. Pick another slot.");
   if (error || !booking) {
-    console.error("Booking insert failed", error);
+    await reportError("Booking insert failed", error?.message ?? error);
     return NextResponse.json({ error: "Couldn't save your booking. Try again in a moment." }, { status: 500 });
   }
 
@@ -61,7 +62,19 @@ export async function POST(req: Request) {
     payment_intent_data: { metadata: { booking_id: booking.id }, description: `${SHOP.name} ${fmtTime(slot)}` },
     expires_at: Math.floor(Date.now() / 1000) + 30 * 60, // Stripe's minimum; frees the slot if abandoned
     // Stripe emails a paid invoice (with PDF) to the email entered at checkout.
-    invoice_creation: { enabled: true, invoice_data: { metadata: { booking_id: booking.id } } },
+    // This invoice email doubles as the booking confirmation, so it carries the details and the status link.
+    invoice_creation: {
+      enabled: true,
+      invoice_data: {
+        metadata: { booking_id: booking.id },
+        description: `${service.name} at ${fmtTime(slot)} on ${fmtDay(slot)}, ${SHOP.name}, ${SHOP.address}. We text you when a barber confirms. Track or cancel: ${site}/booking/${booking.id}`,
+        custom_fields: [
+          { name: "Booking", value: `${fmtTime(slot)}, ${fmtDay(slot)}` },
+          { name: "Where", value: SHOP.name },
+        ],
+        footer: `${OPERATOR.trading} is run by ${OPERATOR.name}, sole trader. ${OPERATOR.email}. Refund policy: ${site}/refunds`,
+      },
+    },
     custom_text: {
       submit: {
         message: `Full refund if you cancel before a barber confirms. After that the ${gbp(LATE_FEE)} late fee is kept, nothing is refunded within ${CANCEL_CUTOFF_MINS} min, and the barber may leave if you are over ${LATE_GRACE_MINS} min late.`,
@@ -71,7 +84,7 @@ export async function POST(req: Request) {
     cancel_url: `${site}/api/checkout/cancel?booking=${booking.id}`,
     });
   } catch (e) {
-    console.error("Stripe checkout failed", e);
+    await reportError("Stripe checkout failed to open", e);
     await db().from("bookings").update({ status: "expired" }).eq("id", booking.id);
     return NextResponse.json({ error: "Payment couldn't start. Try again in a moment." }, { status: 502 });
   }

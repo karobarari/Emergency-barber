@@ -23,6 +23,7 @@ export type Booking = {
   terms_accepted_at: string | null; // when they ticked the rules box at payment
   paid_at: string | null;
   reminded_at: string | null;
+  slot_reminded_at: string | null;
 };
 
 let client: SupabaseClient | null = null;
