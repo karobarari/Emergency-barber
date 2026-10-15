@@ -1,10 +1,10 @@
 import "server-only";
-import { CANCEL_CUTOFF_MINS, gbp, LATE_GRACE_MINS, mapsUrl, SHOP } from "./config";
+import { CANCEL_CUTOFF_MINS, gbp, LATE_GRACE_MINS, mapsUrl, NO_BARBER, SHOP } from "./config";
 import { fmtTime } from "./slots";
 import { sendSms } from "./sms";
 import { stripe } from "./stripe";
 import { db, type Booking, type Status } from "./supabase";
-import { sendBookingAlert, updateBookingAlert } from "./telegram";
+import { sendBookingAlert, sendReminder, updateBookingAlert } from "./telegram";
 
 /**
  * Moves a booking from one status to another only if it's still in `from`, so two barbers can't both claim it.
@@ -24,7 +24,7 @@ async function transition(id: string, from: Status[], patch: Partial<Booking>) {
 
 /** Called by the Stripe webhook once payment succeeds. */
 export async function markPaid(id: string, paymentIntent: string | null) {
-  const b = await transition(id, ["pending"], { status: "new", payment_intent: paymentIntent });
+  const b = await transition(id, ["pending"], { status: "new", payment_intent: paymentIntent, paid_at: new Date().toISOString() });
   if (!b) return;
   // The booking is already paid, so a Stripe retry would skip these. Log failures instead of throwing.
   try {
@@ -128,4 +128,47 @@ export async function complete(id: string) {
   const b = await transition(id, ["confirmed"], { status: "done" });
   if (b) await updateBookingAlert(b);
   return b;
+}
+
+/**
+ * Runs every couple of minutes. Re-pings the group once about bookings nobody has taken, then refunds them
+ * (the same as tapping "Nobody free") so a customer is never left waiting on a barber who isn't coming.
+ */
+export async function chaseUnclaimed(now = Date.now()) {
+  const since = new Date(now - NO_BARBER.remindMins * 60e3).toISOString();
+  const { data, error } = await db().from("bookings").select("*").eq("status", "new").lt("paid_at", since);
+  if (error) throw new Error(`Unclaimed bookings query failed: ${error.message}`);
+
+  const result = { reminded: 0, refunded: 0, failed: 0 };
+  for (const b of (data || []) as Booking[]) {
+    const waitedMins = (now - Date.parse(b.paid_at!)) / 60e3;
+    try {
+      if (waitedMins >= NO_BARBER.refundMins) {
+        if (await refund(b.id)) result.refunded++;
+      } else if (!b.reminded_at) {
+        // Claim the reminder first so two overlapping runs can't both send it.
+        const { data: claimed } = await db()
+          .from("bookings")
+          .update({ reminded_at: new Date(now).toISOString() })
+          .eq("id", b.id)
+          .eq("status", "new")
+          .is("reminded_at", null)
+          .select("id")
+          .maybeSingle();
+        if (!claimed) continue;
+        try {
+          const msgId = await sendReminder(b, Math.ceil(NO_BARBER.refundMins - waitedMins));
+          if (msgId) await db().from("bookings").update({ telegram_message_id: msgId }).eq("id", b.id);
+          result.reminded++;
+        } catch (e) {
+          await db().from("bookings").update({ reminded_at: null }).eq("id", b.id); // try again next run
+          throw e;
+        }
+      }
+    } catch (e) {
+      console.error(`No-barber check failed for booking ${b.id}`, e);
+      result.failed++;
+    }
+  }
+  return result;
 }

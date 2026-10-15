@@ -14,6 +14,8 @@ export const OPERATOR = {
 
 export const LATE_FEE = 50_00; // pence
 export const CANCEL_CUTOFF_MINS = 30;
+/** Unclaimed bookings: re-ping the barbers' group after this long, then refund automatically. */
+export const NO_BARBER = { remindMins: 10, refundMins: 20 };
 export const LATE_GRACE_MINS = 15;
 
 export const SERVICES = [

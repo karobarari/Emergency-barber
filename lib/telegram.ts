@@ -61,5 +61,21 @@ export async function updateBookingAlert(b: Booking) {
   });
 }
 
-export const answerCallback = (id: string, text: string) =>
+/**
+ * Nudges the group about a booking nobody has taken. Replies to the original alert so the buttons are one tap away;
+ * if that alert never went out, sends a fresh one and returns its id.
+ */
+export async function sendReminder(b: Booking, refundInMins: number): Promise<number | null> {
+  if (!process.env.TELEGRAM_BOT_TOKEN) return null;
+  if (!b.telegram_message_id) return sendBookingAlert(b);
+  const res = await api("sendMessage", {
+    chat_id: process.env.TELEGRAM_CHAT_ID,
+    reply_to_message_id: b.telegram_message_id,
+    text: `⏰ Still needs a barber: ${fmtTime(b.slot_at)} · ${b.service_name}. Tap your name above, or it refunds automatically in ${refundInMins} min.`,
+  });
+  if (!res?.ok) throw new Error(`Telegram reminder failed for booking ${b.id}: ${res?.description}`);
+  return null;
+}
+
+export const answerCallback =(id: string, text: string) =>
   api("answerCallbackQuery", { callback_query_id: id, text });

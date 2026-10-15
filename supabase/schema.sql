@@ -19,7 +19,9 @@ create table if not exists bookings (
   payment_intent      text,
   telegram_message_id bigint,
   refund_amount       int,                    -- pence, set when the customer cancels
-  terms_accepted_at   timestamptz             -- when they ticked the rules box at payment
+  terms_accepted_at   timestamptz,            -- when they ticked the rules box at payment
+  paid_at             timestamptz,            -- when Stripe confirmed payment; starts the no-barber clock
+  reminded_at         timestamptz             -- when the group was re-pinged about an unclaimed booking
 );
 
 -- One customer per slot. Pending rows hold the slot while the customer is on Stripe;

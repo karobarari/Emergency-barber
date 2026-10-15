@@ -21,6 +21,8 @@ export type Booking = {
   telegram_message_id: number | null;
   refund_amount: number | null; // pence, set when the customer cancels
   terms_accepted_at: string | null; // when they ticked the rules box at payment
+  paid_at: string | null;
+  reminded_at: string | null;
 };
 
 let client: SupabaseClient | null = null;
