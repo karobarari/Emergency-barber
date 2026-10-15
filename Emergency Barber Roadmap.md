@@ -4,7 +4,7 @@ Oct 13, 2026 · @karo
 
 ## What's already built
 
-The MVP in emergency-barber.zip handles one evening end to end: book, pay, dispatch to a barber, text the customer, refund if nobody's free. It type-checks, builds, and the slot rules were tested across summer and winter time. It has not been deployed or connected to real Supabase, Stripe or Telegram accounts yet.
+The MVP in emergency-barber.zip handles one evening end to end: book, pay, dispatch to a barber, text the customer, refund if nobody's free. It type-checks, builds, and the slot rules were tested across summer and winter time. It is deployed to Vercel and connected to Supabase, Stripe (test mode) and Telegram.
 
 **Stack:** Next.js 14.2.35 (App Router, TypeScript) · Supabase Postgres · Stripe Checkout · Telegram bot · Twilio SMS · Vercel.
 
@@ -35,12 +35,13 @@ No new features. The goal is one real paid booking going through end to end.
 
 - [ ] Agree out-of-hours use with the FadeMasters owner: keys, alarm code, and insurance cover while the shop is closed
 - [ ] Set `OPEN_FROM` to the shop's real closing time
-- [ ] Replace `Barber 2` and `Barber 3` in `BARBER_NAMES` with the two lads' names
-- [ ] Put the code in a GitHub repo
-- [ ] Create Supabase project and run `schema.sql`
-- [ ] Stripe in test mode, webhook connected
-- [ ] Telegram bot and barbers' group, webhook registered
-- [ ] Deploy to Vercel on a domain
+- [x] Replace `Barber 2` and `Barber 3` in `BARBER_NAMES` with the two lads' names (Joe, Oscar)
+- [x] Put the code in a GitHub repo
+- [x] Create Supabase project and run `schema.sql`
+- [x] Stripe in test mode, webhook connected
+- [x] Telegram bot and barbers' group, webhook registered
+- [x] Deploy to Vercel: live at emergency-barber.vercel.app, auto-deploys from `main`
+- [ ] Custom domain
 - [ ] Full test run with card 4242 4242 4242 4242: booking → alert → assign → status page
 - [ ] Twilio UK sender set up so customers actually get texts
 - [ ] Switch Stripe to live keys, make one real booking on your own card and refund it
