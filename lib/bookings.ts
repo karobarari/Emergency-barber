@@ -1,5 +1,5 @@
 import "server-only";
-import { gbp, mapsUrl, SHOP } from "./config";
+import { CANCEL_CUTOFF_MINS, gbp, LATE_GRACE_MINS, mapsUrl, SHOP } from "./config";
 import { fmtTime } from "./slots";
 import { sendSms } from "./sms";
 import { stripe } from "./stripe";
@@ -37,6 +37,7 @@ export async function markPaid(id: string, paymentIntent: string | null) {
     await sendSms(
       b.phone,
       `${SHOP.name}: payment received for ${fmtTime(b.slot_at)}. We'll text you as soon as your barber is confirmed. ` +
+        `Full refund if you cancel before then; after that the ${gbp(b.late_fee)} late fee is kept, and nothing back within ${CANCEL_CUTOFF_MINS} min. ` +
         `Track or cancel: ${process.env.SITE_URL}/booking/${b.id}`,
     );
   } catch (e) {
@@ -50,7 +51,8 @@ export async function assign(id: string, barber: string) {
   await updateBookingAlert(b);
   await sendSms(
     b.phone,
-    `${barber} will open ${SHOP.name} for you at ${fmtTime(b.slot_at)}. ${SHOP.address}. Directions: ${mapsUrl()} Reply if you're running late.`,
+    `${barber} will open ${SHOP.name} for you at ${fmtTime(b.slot_at)}. ${SHOP.address}. Directions: ${mapsUrl()} ` +
+      `Running late? Reply to let us know. After ${LATE_GRACE_MINS} min the barber may leave and nothing is refunded.`,
   );
   return b;
 }
@@ -71,8 +73,6 @@ export async function refund(id: string) {
   await sendSms(b.phone, `${SHOP.name}: sorry, no barber is free for ${fmtTime(b.slot_at)}. We've refunded ${gbp(b.total)} to your card.`);
   return b;
 }
-
-const CANCEL_CUTOFF_MINS = 30;
 
 /**
  * What a customer gets back if they cancel now, or null if they can't cancel.

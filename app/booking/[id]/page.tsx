@@ -1,7 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import AutoRefresh from "@/app/components/AutoRefresh";
 import { cancel, cancelQuote } from "@/lib/bookings";
-import { gbp, mapsUrl, SHOP } from "@/lib/config";
+import { gbp, mapsUrl, RULES, SHOP } from "@/lib/config";
 import { fmtTime } from "@/lib/slots";
 import { db, type Booking } from "@/lib/supabase";
 
@@ -95,10 +95,10 @@ export default async function BookingStatus({ params, searchParams }: { params: 
         </div>
       )}
       {quote !== null && !confirming && (
-        <p className="note">
-          Can&apos;t make it? <a href={`/booking/${b.id}?cancel=1`}>Cancel booking</a>. Full refund before a barber confirms;
-          after that the {gbp(b.late_fee)} late fee is kept; nothing back within 30 minutes.
-        </p>
+        <>
+          <p className="note">Can&apos;t make it? <a href={`/booking/${b.id}?cancel=1`}>Cancel booking</a></p>
+          <ul className="rules">{RULES.map((r) => <li key={r}>{r}</li>)}</ul>
+        </>
       )}
       {!confirming && <p className="note">Keep this page open or wait for our text. It updates on its own.</p>}
     </main>

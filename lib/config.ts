@@ -5,6 +5,8 @@ export const SHOP = {
 };
 
 export const LATE_FEE = 50_00; // pence
+export const CANCEL_CUTOFF_MINS = 30;
+export const LATE_GRACE_MINS = 15;
 
 export const SERVICES = [
   { id: "cut", name: "Skin fade / haircut", mins: 40, price: 26_00 },
@@ -28,6 +30,14 @@ export const barbers = () =>
     .filter(Boolean);
 
 export const gbp = (pence: number) => `£${(pence / 100).toFixed(2)}`;
+
+/** The booking rules from the one-pager, shown at payment, on the status page and in texts. */
+export const RULES = [
+  "Cancel for a full refund until a barber confirms.",
+  `Once confirmed, cancel ${CANCEL_CUTOFF_MINS}+ min before and we refund the service; the ${gbp(LATE_FEE)} late fee is kept.`,
+  `Within ${CANCEL_CUTOFF_MINS} min of your slot, nothing is refunded.`,
+  `Running late? Up to ${LATE_GRACE_MINS} min is fine. After that the barber may leave and nothing is refunded.`,
+];
 
 export const mapsUrl = () =>
   "https://www.google.com/maps/search/?api=1&query=" +

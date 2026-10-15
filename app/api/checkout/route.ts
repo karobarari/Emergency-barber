@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { LATE_FEE, SERVICES, SHOP } from "@/lib/config";
+import { CANCEL_CUTOFF_MINS, LATE_FEE, LATE_GRACE_MINS, SERVICES, SHOP, gbp } from "@/lib/config";
 import { fmtTime } from "@/lib/slots";
 import { ukMobile } from "@/lib/sms";
 import { stripe } from "@/lib/stripe";
@@ -19,6 +19,7 @@ export async function POST(req: Request) {
   if (!name) return bad("Add your name.");
   const phone = ukMobile(String(body.phone || ""));
   if (!phone) return bad("Enter a UK mobile number, like 07700 900123.");
+  if (body.agreed !== true) return bad("Tick the box to agree to the cancellation and lateness rules.");
 
   const slot = new Date(body.slot);
   const free = await freeSlots();
@@ -35,6 +36,7 @@ export async function POST(req: Request) {
       slot_at: slot.toISOString(),
       service_price: service.price, late_fee: LATE_FEE, total,
       status: "pending",
+      terms_accepted_at: new Date().toISOString(),
     })
     .select()
     .single();
@@ -60,6 +62,11 @@ export async function POST(req: Request) {
     expires_at: Math.floor(Date.now() / 1000) + 30 * 60, // Stripe's minimum; frees the slot if abandoned
     // Stripe emails a paid invoice (with PDF) to the email entered at checkout.
     invoice_creation: { enabled: true, invoice_data: { metadata: { booking_id: booking.id } } },
+    custom_text: {
+      submit: {
+        message: `Full refund if you cancel before a barber confirms. After that the ${gbp(LATE_FEE)} late fee is kept, nothing is refunded within ${CANCEL_CUTOFF_MINS} min, and the barber may leave if you are over ${LATE_GRACE_MINS} min late.`,
+      },
+    },
     success_url: `${site}/booking/${booking.id}`,
     cancel_url: `${site}/api/checkout/cancel?booking=${booking.id}`,
     });

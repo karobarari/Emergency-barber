@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 
 type Service = { id: string; name: string; mins: number; price: number };
-type Props = { services: Service[]; lateFee: number; shop: string; address: string; maps: string };
+type Props = { services: Service[]; lateFee: number; shop: string; address: string; maps: string; rules: string[] };
 
 const gbp = (p: number) => `£${(p / 100).toFixed(p % 100 ? 2 : 0)}`;
 const fmt = (iso: string) =>
@@ -12,7 +12,7 @@ function Steps({ n }: { n: number }) {
   return <div className="steps">{[1, 2, 3, 4].map((i) => <span key={i} className={i <= n ? "on" : ""} />)}</div>;
 }
 
-export default function BookingFlow({ services, lateFee, shop, address, maps }: Props) {
+export default function BookingFlow({ services, lateFee, shop, address, maps, rules }: Props) {
   const [step, setStep] = useState(1);
   const [serviceId, setServiceId] = useState<string | null>(null);
   const [slots, setSlots] = useState<string[] | null>(null);
@@ -21,6 +21,7 @@ export default function BookingFlow({ services, lateFee, shop, address, maps }: 
   const [phone, setPhone] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [agreed, setAgreed] = useState(false);
   const svc = services.find((s) => s.id === serviceId);
 
   const loadSlots = () => {
@@ -34,7 +35,7 @@ export default function BookingFlow({ services, lateFee, shop, address, maps }: 
     const res = await fetch("/api/checkout", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ serviceId, slot, name, phone }),
+      body: JSON.stringify({ serviceId, slot, name, phone, agreed }),
     }).catch(() => null);
     const data = await res?.json().catch(() => null);
     if (data?.url) { window.location.href = data.url; return; }
@@ -116,7 +117,13 @@ export default function BookingFlow({ services, lateFee, shop, address, maps }: 
         <div className="row total"><span>Total</span><span className="price">{svc && gbp(svc.price + lateFee)}</span></div>
       </div>
       {error && <p className="err">{error}</p>}
-      <button className="btn" disabled={busy} onClick={pay}>{busy ? "Opening secure payment…" : `Pay ${svc && gbp(svc.price + lateFee)}`}</button>
+      <div className="h3">Before you pay</div>
+      <ul className="rules">{rules.map((r) => <li key={r}>{r}</li>)}</ul>
+      <label className="agree">
+        <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} />
+        <span>I agree to the cancellation and lateness rules</span>
+      </label>
+      <button className="btn" disabled={busy || !agreed} onClick={pay}>{busy ? "Opening secure payment…" : `Pay ${svc && gbp(svc.price + lateFee)}`}</button>
       <button className="back" onClick={() => { setError(""); setStep(3); }}>← Edit details</button>
     </>
   );
