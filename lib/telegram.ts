@@ -14,11 +14,11 @@ export function bookingText(b: Booking) {
   const lines = [
     `💈 NEW LATE BOOKING · ${fmtTime(b.slot_at)} (${fmtDay(b.slot_at)})`,
     `${b.name} · ${b.phone}`,
-    `${b.service_name} · paid ${gbp(b.total)}`,
+    `${b.service_name} · ${b.status === "new" ? `${gbp(b.total)} held, charged when you accept` : gbp(b.total)}`,
     `Open ${SHOP.name}`,
   ];
-  if (b.status === "confirmed") lines.push(`\n✅ ${b.barber} is taking this`);
-  if (b.status === "refunded") lines.push(`\n↩️ Refunded, nobody free`);
+  if (b.status === "confirmed") lines.push(`\n✅ ${b.barber} is taking this · card charged`);
+  if (b.status === "refunded") lines.push(`\n↩️ Nobody free, hold released`);
   if (b.status === "done") lines.push(`\n✔️ Done (${b.barber})`);
   if (b.status === "cancelled") lines.push(`\n🚫 Cancelled by customer · refunded ${gbp(b.refund_amount ?? 0)}`);
   return lines.join("\n");
@@ -29,7 +29,7 @@ const keyboard = (b: Booking) =>
     ? {
         inline_keyboard: [
           barbers().map((name, i) => ({ text: `✂️ ${name}`, callback_data: `assign:${b.id}:${i}` })),
-          [{ text: "Nobody free: refund", callback_data: `refund:${b.id}` }],
+          [{ text: "Nobody free: release hold", callback_data: `refund:${b.id}` }],
         ],
       }
     : { inline_keyboard: [] };
@@ -71,7 +71,7 @@ export async function sendReminder(b: Booking, refundInMins: number): Promise<nu
   const res = await api("sendMessage", {
     chat_id: process.env.TELEGRAM_CHAT_ID,
     reply_to_message_id: b.telegram_message_id,
-    text: `⏰ Still needs a barber: ${fmtTime(b.slot_at)} · ${b.service_name}. Tap your name above, or it refunds automatically in ${refundInMins} min.`,
+    text: `⏰ Still needs a barber: ${fmtTime(b.slot_at)} · ${b.service_name}. Tap your name above, or the customer's hold is released automatically in ${refundInMins} min.`,
   });
   if (!res?.ok) throw new Error(`Telegram reminder failed for booking ${b.id}: ${res?.description}`);
   return null;

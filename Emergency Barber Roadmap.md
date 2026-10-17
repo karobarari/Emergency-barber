@@ -55,15 +55,16 @@ These close the gaps between the one-pager's promises and what the code does. Do
 3. ✅ **Terms, refund policy and privacy notice pages.** Done 15 Oct: /terms, /refunds, /privacy, linked from the footer and the step 4 tick box. You store names and phone numbers, so UK GDPR applies.
 4. ✅ **No-barber timeout.** Done 15 Oct, tested live (reminder at 11 min, full refund at 21½ min): Supabase pg_cron calls /api/cron every 2 min; re-ping at 10 min, refund at 20. If nobody taps Assign within about 10 minutes, re-ping the Telegram group; after 20 minutes, auto-refund and text the customer.
 5. 🧪 **Reminder text** Built 15 Oct, needs a live test once Twilio is set up: sent by the same /api/cron job. 30 minutes before the slot, with directions.
-6. 🧪 **Booking confirmation email** Built 15 Oct: the Stripe invoice email carries the booking details and track/cancel link. Needs "Successful payments" and "Refunds" emails switched on in Stripe → Settings → Customer emails. with a Stripe receipt, which also covers business customers who need an invoice.
+6. 🧪 **Booking confirmation email** Reworked 17 Oct: Stripe won't make an invoice for a held payment, so the Stripe receipt sent when a barber accepts is the confirmation. The payment description carries the booking details and the track/cancel link. Needs "Successful payments" and "Refunds" emails switched on in Stripe → Settings → Customer emails. Business customers who need an invoice get one sent by hand from the Dashboard.
 7. ✅ **Error alerts.** Done 15 Oct, tested live: reportError posts to Karo's private chat (TELEGRAM_ALERT_CHAT_ID). Send failed webhooks or Stripe errors to the Telegram group so nothing fails silently.
+8. 🧪 **Pay only when a barber accepts.** Built 17 Oct, needs a test-mode run: Checkout now places a hold on the card (`capture_method: manual`) and the customer sends a request. Tapping Assign takes the money; "Nobody free", the 20-min timeout, or the customer cancelling before confirmation releases the hold, so they're never charged and there's no Stripe fee. Cards and wallets only. Booking flow, status page, texts, Telegram, terms and refund policy reworded.
 
 ## Phase 2: Running the nights (month 2)
 
 Build these once real bookings show where the friction is. The README listed them as deliberately left out.
 
 1. **Barber availability.** Each barber marks which nights they're on via Telegram (/on, /off) or the admin page. Slots only show on nights someone is free, so fewer refunds.
-2. **Book ahead.** Let customers pick tomorrow or up to 7 days out, not just tonight. Needs a date picker and the slot logic run per day.
+2. **Book ahead.** Let customers pick tomorrow or up to 7 days out, not just tonight. Needs a date picker and the slot logic run per day. Card holds expire after about 5–7 days, so for far-ahead bookings save the card and place the hold on the day.
 3. **Two chairs at once.** If two barbers are on, allow two bookings per slot, each tied to a barber.
 4. **Correct slot length per service.** Block 45 / 60 / 75 min depending on the service, so a premium package doesn't overlap the next booking.
 5. **Blackout dates.** Close nights from the admin page (holidays, shop events).

@@ -48,7 +48,7 @@ export default function BookingFlow({ services, lateFee, shop, address, maps, ru
     <>
       <Steps n={1} />
       <h2>Need a cut in the next hour?</h2>
-      <p className="lead">A barber opens {shop} out of hours just for you. Pay now, drive over, and walk straight into the chair.</p>
+      <p className="lead">A barber opens {shop} out of hours just for you. Send a request, pay only when a barber accepts, then walk straight into the chair.</p>
       <div className="sum">
         <div className="row"><span>Where</span><span>{address}<br /><a href={maps} target="_blank" rel="noopener">Get directions</a></span></div>
         <div className="row"><span>Notice</span><span>At least 1 hour</span></div>
@@ -99,7 +99,7 @@ export default function BookingFlow({ services, lateFee, shop, address, maps, ru
       <label className="f" htmlFor="ph">Mobile number</label>
       <input className="t" id="ph" type="tel" autoComplete="tel" placeholder="07700 900123" value={phone} onChange={(e) => setPhone(e.target.value)} />
       {error && <p className="err">{error}</p>}
-      <button className="btn" disabled={!name.trim() || !phone.trim()} onClick={() => { setError(""); setStep(4); }}>Review and pay</button>
+      <button className="btn" disabled={!name.trim() || !phone.trim()} onClick={() => { setError(""); setStep(4); }}>Review request</button>
       <button className="back" onClick={() => setStep(2)}>← Change time</button>
     </>
   );
@@ -107,8 +107,8 @@ export default function BookingFlow({ services, lateFee, shop, address, maps, ru
   return (
     <>
       <Steps n={4} />
-      <h2>Pay to confirm</h2>
-      <p className="lead">You pay now. If no barber is free we refund you in full straight away.</p>
+      <h2>Request a barber</h2>
+      <p className="lead">We hold the total on your card and only charge it when a barber accepts. If nobody can, the hold is released and you pay nothing.</p>
       <div className="sum">
         <div className="row"><span>Time</span><span className="price">{slot && fmt(slot)}</span></div>
         <div className="row"><span>Shop</span><span>{shop}</span></div>
@@ -117,7 +117,7 @@ export default function BookingFlow({ services, lateFee, shop, address, maps, ru
         <div className="row total"><span>Total</span><span className="price">{svc && gbp(svc.price + lateFee)}</span></div>
       </div>
       {error && <p className="err">{error}</p>}
-      <div className="h3">Before you pay</div>
+      <div className="h3">Before you book</div>
       <ul className="rules">{rules.map((r) => <li key={r}>{r}</li>)}</ul>
       <label className="agree">
         <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} />
@@ -126,7 +126,7 @@ export default function BookingFlow({ services, lateFee, shop, address, maps, ru
           our <a href="/privacy" target="_blank" rel="noopener">privacy notice</a>.
         </span>
       </label>
-      <button className="btn" disabled={busy || !agreed} onClick={pay}>{busy ? "Opening secure payment…" : `Pay ${svc && gbp(svc.price + lateFee)}`}</button>
+      <button className="btn" disabled={busy || !agreed} onClick={pay}>{busy ? "Opening secure payment…" : `Request booking · hold ${svc && gbp(svc.price + lateFee)}`}</button>
       <button className="back" onClick={() => { setError(""); setStep(3); }}>← Edit details</button>
     </>
   );

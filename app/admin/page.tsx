@@ -3,6 +3,7 @@ import { assign, complete, refund } from "@/lib/bookings";
 import { barbers, gbp } from "@/lib/config";
 import { fmtDay, fmtTime } from "@/lib/slots";
 import { db, type Booking } from "@/lib/supabase";
+import { reportError } from "@/lib/telegram";
 import AutoRefresh from "@/app/components/AutoRefresh";
 
 export const dynamic = "force-dynamic";
@@ -11,14 +12,20 @@ async function act(form: FormData) {
   "use server";
   const id = String(form.get("id"));
   const action = String(form.get("action"));
-  if (action === "assign") await assign(id, String(form.get("barber")));
+  if (action === "assign") {
+    try {
+      await assign(id, String(form.get("barber")));
+    } catch (e) {
+      await reportError(`Charging the card failed when assigning booking ${id} from admin`, e);
+    }
+  }
   if (action === "refund") await refund(id);
   if (action === "done") await complete(id);
   revalidatePath("/admin");
 }
 
 const LABEL: Record<string, string> = {
-  new: "Needs barber", confirmed: "Confirmed", done: "Done", refunded: "Refunded", cancelled: "Cancelled",
+  new: "Needs barber", confirmed: "Confirmed", done: "Done", refunded: "Nobody free", cancelled: "Cancelled",
 };
 
 export default async function Admin() {
@@ -32,8 +39,8 @@ export default async function Admin() {
   const rows = (data || []) as Booking[];
   const live = rows.filter((b) => b.status === "new" || b.status === "confirmed");
   const past = rows.filter((b) => b.status === "done" || b.status === "refunded" || b.status === "cancelled");
-  // Cancellations keep whatever wasn't refunded (the late fee, or everything inside 30 min).
-  const taken = rows.filter((b) => b.status !== "refunded").reduce((a, b) => a + b.total - (b.refund_amount ?? 0), 0);
+  // Unclaimed bookings are only held, not charged. Cancellations keep whatever wasn't refunded (the late fee, or everything inside 30 min).
+  const taken = rows.filter((b) => b.status !== "refunded" && b.status !== "new").reduce((a, b) => a + b.total - (b.refund_amount ?? 0), 0);
 
   const card = (b: Booking) => (
     <div key={b.id} className={`card ${b.status === "new" ? "new" : ""}`}>
@@ -58,7 +65,7 @@ export default async function Admin() {
           <form action={act}>
             <input type="hidden" name="id" value={b.id} />
             <input type="hidden" name="action" value="refund" />
-            <button className="small">Nobody free? Refund customer</button>
+            <button className="small">Nobody free? Release customer&apos;s hold</button>
           </form>
         </>
       )}

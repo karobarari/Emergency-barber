@@ -21,15 +21,20 @@ export async function POST(req: Request) {
   const [action, id, idx] = String(cq.data).split(":");
   if (action === "assign") {
     const name = barbers()[Number(idx)];
-    const b = name ? await assign(id, name) : null;
-    await answerCallback(cq.id, b ? `Assigned to ${name}. Customer texted.` : "Already taken or refunded");
+    try {
+      const b = name ? await assign(id, name) : null;
+      await answerCallback(cq.id, b ? `Assigned to ${name}. Card charged, customer texted.` : "Already taken or released");
+    } catch (e) {
+      await reportError(`Charging the card failed when ${name} took booking ${id}`, e);
+      await answerCallback(cq.id, "Couldn't charge the customer's card. Don't open up yet. Try again in a moment.");
+    }
   } else if (action === "refund") {
     try {
       const b = await refund(id);
-      await answerCallback(cq.id, b ? "Refunded. Customer texted." : "Already handled");
+      await answerCallback(cq.id, b ? "Hold released. Customer texted." : "Already handled");
     } catch (e) {
-      await reportError(`Refund from Telegram failed for booking ${id}`, e);
-      await answerCallback(cq.id, "Refund failed. Try again or refund it in Stripe.");
+      await reportError(`Releasing the hold from Telegram failed for booking ${id}`, e);
+      await answerCallback(cq.id, "Couldn't release the hold. Try again or cancel the payment in Stripe.");
     }
   }
   return NextResponse.json({ ok: true });

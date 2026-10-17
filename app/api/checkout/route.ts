@@ -54,30 +54,26 @@ export async function POST(req: Request) {
     session = await stripe().checkout.sessions.create({
     mode: "payment",
     currency: "gbp",
+    // Holds only work on cards (Apple Pay and Google Pay count as cards), not delayed methods like Bacs.
+    payment_method_types: ["card"],
+    submit_type: "book",
     line_items: [
       { quantity: 1, price_data: { currency: "gbp", unit_amount: service.price, product_data: { name: `${service.name} at ${fmtTime(slot)}` } } },
       { quantity: 1, price_data: { currency: "gbp", unit_amount: LATE_FEE, product_data: { name: "Late booking fee (shop opened out of hours)" } } },
     ],
     metadata: { booking_id: booking.id },
-    payment_intent_data: { metadata: { booking_id: booking.id }, description: `${SHOP.name} ${fmtTime(slot)}` },
-    expires_at: Math.floor(Date.now() / 1000) + 30 * 60, // Stripe's minimum; frees the slot if abandoned
-    // Stripe emails a paid invoice (with PDF) to the email entered at checkout.
-    // This invoice email doubles as the booking confirmation, so it carries the details and the status link.
-    invoice_creation: {
-      enabled: true,
-      invoice_data: {
-        metadata: { booking_id: booking.id },
-        description: `${service.name} at ${fmtTime(slot)} on ${fmtDay(slot)}, ${SHOP.name}, ${SHOP.address}. We text you when a barber confirms. Track or cancel: ${site}/booking/${booking.id}`,
-        custom_fields: [
-          { name: "Booking", value: `${fmtTime(slot)}, ${fmtDay(slot)}` },
-          { name: "Where", value: SHOP.name },
-        ],
-        footer: `${OPERATOR.trading} is run by ${OPERATOR.name}, sole trader. ${OPERATOR.email}. Refund policy: ${site}/refunds`,
-      },
+    payment_intent_data: {
+      metadata: { booking_id: booking.id },
+      // Only hold the money. It's charged when a barber taps Assign, and released if nobody does.
+      // Stripe can't make a post-payment invoice for a hold, so the receipt emailed on capture is the confirmation
+      // and carries the details from this description.
+      capture_method: "manual",
+      description: `${service.name} at ${fmtTime(slot)} on ${fmtDay(slot)}, ${SHOP.name}, ${SHOP.address}. Track or cancel: ${site}/booking/${booking.id}. ${OPERATOR.trading} is run by ${OPERATOR.name}, sole trader, ${OPERATOR.email}.`,
     },
+    expires_at: Math.floor(Date.now() / 1000) + 30 * 60, // Stripe's minimum; frees the slot if abandoned
     custom_text: {
       submit: {
-        message: `Full refund if you cancel before a barber confirms. After that the ${gbp(LATE_FEE)} late fee is kept, nothing is refunded within ${CANCEL_CUTOFF_MINS} min, and the barber may leave if you are over ${LATE_GRACE_MINS} min late.`,
+        message: `We hold this on your card and only charge it when a barber accepts. If nobody can, the hold is released. Cancel free until a barber confirms. After that the ${gbp(LATE_FEE)} late fee is kept, nothing is refunded within ${CANCEL_CUTOFF_MINS} min, and the barber may leave if you are over ${LATE_GRACE_MINS} min late.`,
       },
     },
     success_url: `${site}/booking/${booking.id}`,

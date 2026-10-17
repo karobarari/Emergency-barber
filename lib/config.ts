@@ -14,7 +14,7 @@ export const OPERATOR = {
 
 export const LATE_FEE = 50_00; // pence
 export const CANCEL_CUTOFF_MINS = 30;
-/** Unclaimed bookings: re-ping the barbers' group after this long, then refund automatically. */
+/** Unclaimed bookings: re-ping the barbers' group after this long, then release the card hold automatically. */
 export const NO_BARBER = { remindMins: 10, refundMins: 20 };
 /** Customers get a reminder text with directions this long before their slot. */
 export const SLOT_REMINDER_MINS = 30;
@@ -45,7 +45,7 @@ export const gbp = (pence: number) => `£${(pence / 100).toFixed(2)}`;
 
 /** The booking rules from the one-pager, shown at payment, on the status page and in texts. */
 export const RULES = [
-  "Cancel for a full refund until a barber confirms.",
+  "You're only charged once a barber accepts. Cancel free until then.",
   `Once confirmed, cancel ${CANCEL_CUTOFF_MINS}+ min before and we refund the service; the ${gbp(LATE_FEE)} late fee is kept.`,
   `Within ${CANCEL_CUTOFF_MINS} min of your slot, nothing is refunded.`,
   `Running late? Up to ${LATE_GRACE_MINS} min is fine. After that the barber may leave and nothing is refunded.`,

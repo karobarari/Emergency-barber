@@ -5,7 +5,7 @@ export default function Home({ searchParams }: { searchParams: { cancelled?: str
   return (
     <main className="wrap">
       {searchParams.cancelled && (
-        <div className="banner">Payment cancelled. Nothing was charged and your slot has been released.</div>
+        <div className="banner">Request cancelled. Nothing was held on your card and the slot has been released.</div>
       )}
       <BookingFlow
         services={SERVICES.map((s) => ({ ...s }))}

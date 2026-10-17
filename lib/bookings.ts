@@ -22,11 +22,28 @@ async function transition(id: string, from: Status[], patch: Partial<Booking>) {
   return data as Booking | null;
 }
 
-/** Called by the Stripe webhook once payment succeeds. */
-export async function markPaid(id: string, paymentIntent: string | null) {
+/**
+ * Gives the customer's money back. Until a barber accepts, the money is only held on the card, so the hold is
+ * released in full (no refund, no Stripe fee). Once it's been taken, `amount` is refunded (all of it by default).
+ */
+async function giveBack(paymentIntent: string, key: string, amount?: number): Promise<"released" | "refunded"> {
+  const pi = await stripe().paymentIntents.retrieve(paymentIntent);
+  if (pi.status === "requires_capture") {
+    await stripe().paymentIntents.cancel(paymentIntent, {}, { idempotencyKey: `${key}-release` });
+    return "released";
+  }
+  if (pi.status === "succeeded") {
+    await stripe().refunds.create({ payment_intent: paymentIntent, amount }, { idempotencyKey: key });
+    return "refunded";
+  }
+  return "released"; // canceled: the hold already lapsed, so nothing was ever taken
+}
+
+/** Called by the Stripe webhook once the card hold is in place. Nothing is charged until a barber accepts. */
+export async function markHeld(id: string, paymentIntent: string | null) {
   const b = await transition(id, ["pending"], { status: "new", payment_intent: paymentIntent, paid_at: new Date().toISOString() });
   if (!b) return;
-  // The booking is already paid, so a Stripe retry would skip these. Log failures instead of throwing.
+  // The hold is already placed, so a Stripe retry would skip these. Log failures instead of throwing.
   try {
     const msgId = await sendBookingAlert(b);
     if (msgId) await db().from("bookings").update({ telegram_message_id: msgId }).eq("id", id);
@@ -36,22 +53,36 @@ export async function markPaid(id: string, paymentIntent: string | null) {
   try {
     await sendSms(
       b.phone,
-      `${SHOP.name}: payment received for ${fmtTime(b.slot_at)}. We'll text you as soon as your barber is confirmed. ` +
-        `Full refund if you cancel before then; after that the ${gbp(b.late_fee)} late fee is kept, and nothing back within ${CANCEL_CUTOFF_MINS} min. ` +
+      `${SHOP.name}: request sent for ${fmtTime(b.slot_at)}. We've held ${gbp(b.total)} on your card but only charge it when a barber accepts. ` +
+        `We'll text you as soon as one does. Cancel free until then; after that the ${gbp(b.late_fee)} late fee is kept, and nothing back within ${CANCEL_CUTOFF_MINS} min. ` +
         `Track or cancel: ${process.env.SITE_URL}/booking/${b.id}`,
     );
   } catch (e) {
-    await reportError(`Payment text failed for booking ${id}`, e);
+    await reportError(`Request text failed for booking ${id}`, e);
   }
 }
 
+/** A barber accepts: claim the booking, then take the held money. Throws (and un-claims) if the charge fails. */
 export async function assign(id: string, barber: string) {
   const b = await transition(id, ["new"], { status: "confirmed", barber });
   if (!b) return null;
+  if (b.payment_intent) {
+    try {
+      await stripe().paymentIntents.capture(b.payment_intent);
+    } catch (e) {
+      // A retry after a timeout may find it already captured, which is fine.
+      const pi = await stripe().paymentIntents.retrieve(b.payment_intent).catch(() => null);
+      if (pi?.status !== "succeeded") {
+        await transition(id, ["confirmed"], { status: "new", barber: null });
+        throw e;
+      }
+    }
+  }
   await updateBookingAlert(b);
   await sendSms(
     b.phone,
-    `${barber} will open ${SHOP.name} for you at ${fmtTime(b.slot_at)}. ${SHOP.address}. Directions: ${mapsUrl()} ` +
+    `${barber} will open ${SHOP.name} for you at ${fmtTime(b.slot_at)}. We've now charged the ${gbp(b.total)} held on your card. ` +
+      `${SHOP.address}. Directions: ${mapsUrl()} ` +
       `Running late? Reply to let us know. After ${LATE_GRACE_MINS} min the barber may leave and nothing is refunded.`,
   );
   return b;
@@ -60,9 +91,10 @@ export async function assign(id: string, barber: string) {
 export async function refund(id: string) {
   const b = await transition(id, ["new", "confirmed"], { status: "refunded" });
   if (!b) return null;
+  let how: "released" | "refunded" = "released";
   if (b.payment_intent) {
     try {
-      await stripe().refunds.create({ payment_intent: b.payment_intent }, { idempotencyKey: `refund-${id}` });
+      how = await giveBack(b.payment_intent, `refund-${id}`);
     } catch (e) {
       // Undo the claim so someone can try again. A barber is only set once the booking is confirmed.
       await transition(id, ["refunded"], { status: b.barber ? "confirmed" : "new" });
@@ -70,13 +102,19 @@ export async function refund(id: string) {
     }
   }
   await updateBookingAlert(b);
-  await sendSms(b.phone, `${SHOP.name}: sorry, no barber is free for ${fmtTime(b.slot_at)}. We've refunded ${gbp(b.total)} to your card.`);
+  await sendSms(
+    b.phone,
+    `${SHOP.name}: sorry, no barber is free for ${fmtTime(b.slot_at)}. ` +
+      (how === "released"
+        ? `You haven't been charged. We've released the ${gbp(b.total)} hold on your card.`
+        : `We've refunded ${gbp(b.total)} to your card.`),
+  );
   return b;
 }
 
 /**
  * What a customer gets back if they cancel now, or null if they can't cancel.
- * Before a barber confirms: everything. Confirmed with 30+ min to go: the service price, the late fee is kept
+ * Before a barber confirms: everything (the hold is released). Confirmed with 30+ min to go: the service price, the late fee is kept
  * because a barber has committed to opening up. Under 30 min: nothing.
  */
 export function cancelQuote(b: Booking, now = Date.now()): number | null {
@@ -102,9 +140,11 @@ export async function cancel(id: string, expected: number): Promise<CancelResult
   // Only from the status we quoted on, so a barber tapping Assign at the same moment can't slip past the quote.
   const b = await transition(id, [current.status], { status: "cancelled", refund_amount: quote });
   if (!b) return { ok: false, quote: null };
+  let how: "released" | "refunded" = "refunded";
   if (quote > 0 && b.payment_intent) {
     try {
-      await stripe().refunds.create({ payment_intent: b.payment_intent, amount: quote }, { idempotencyKey: `cancel-${id}` });
+      // Before a barber accepts, the quote is the full total and the hold is simply released.
+      how = await giveBack(b.payment_intent, `cancel-${id}`, quote);
     } catch (e) {
       await transition(id, ["cancelled"], { status: current.status, refund_amount: null });
       throw e;
@@ -119,7 +159,9 @@ export async function cancel(id: string, expected: number): Promise<CancelResult
   await sendSms(
     b.phone,
     `${SHOP.name}: your ${fmtTime(b.slot_at)} booking is cancelled. ` +
-      (quote > 0 ? `${gbp(quote)} is on its way back to your card.` : "No refund is due as it was within 30 minutes."),
+      (quote === 0 ? "No refund is due as it was within 30 minutes."
+        : how === "released" ? `You haven't been charged. We've released the ${gbp(quote)} hold on your card.`
+        : `${gbp(quote)} is on its way back to your card.`),
   );
   return { ok: true, booking: b };
 }
@@ -131,7 +173,7 @@ export async function complete(id: string) {
 }
 
 /**
- * Runs every couple of minutes. Re-pings the group once about bookings nobody has taken, then refunds them
+ * Runs every couple of minutes. Re-pings the group once about bookings nobody has taken, then releases the card hold
  * (the same as tapping "Nobody free") so a customer is never left waiting on a barber who isn't coming.
  */
 export async function chaseUnclaimed(now = Date.now()) {

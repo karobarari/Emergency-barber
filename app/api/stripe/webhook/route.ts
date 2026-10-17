@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import type Stripe from "stripe";
-import { markPaid } from "@/lib/bookings";
+import { markHeld } from "@/lib/bookings";
 import { stripe } from "@/lib/stripe";
 import { db } from "@/lib/supabase";
 import { reportError } from "@/lib/telegram";
@@ -23,13 +23,11 @@ export async function POST(req: Request) {
   if (!id) return NextResponse.json({ ok: true });
 
   try {
-    // Card payments are "paid" on completion. Delayed methods (e.g. Bacs) complete as "unpaid" and settle later.
-    const paid =
-      (event.type === "checkout.session.completed" && session.payment_status === "paid") ||
-      event.type === "checkout.session.async_payment_succeeded";
-    if (paid) {
+    // Checkout only places a hold, which the session reports as "unpaid", so ask the PaymentIntent whether the card was approved.
+    if (event.type === "checkout.session.completed" || event.type === "checkout.session.async_payment_succeeded") {
       const pi = typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id ?? null;
-      await markPaid(id, pi);
+      const status = pi ? (await stripe().paymentIntents.retrieve(pi)).status : null;
+      if (status === "requires_capture" || status === "succeeded") await markHeld(id, pi);
     }
     if (event.type === "checkout.session.expired" || event.type === "checkout.session.async_payment_failed") {
       const { error } = await db().from("bookings").update({ status: "expired" }).eq("id", id).eq("status", "pending");

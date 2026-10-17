@@ -7,7 +7,7 @@ export default function Terms() {
   return (
     <main className="wrap legal">
       <h2>Terms of booking</h2>
-      <p className="lead">Last updated 15 October 2026</p>
+      <p className="lead">Last updated 17 October 2026</p>
 
       <div className="h3">Who we are</div>
       <p>
@@ -24,12 +24,13 @@ export default function Terms() {
 
       <div className="h3">Paying</div>
       <p>
-        You pay the full price when you book. Payments are handled by Stripe; we never see or store your card details.
-        Your booking is confirmed when a barber accepts it, and we text you who is opening up.
+        When you send a request we place a hold for the full price on your card. We only take the money when a barber
+        accepts your booking, and we text you who is opening up. Payments are handled by Stripe; we never see or store
+        your card details.
       </p>
 
       <div className="h3">If no barber is free</div>
-      <p>If no barber can take your booking, we cancel it and refund everything you paid.</p>
+      <p>If no barber can take your booking, we cancel it and release the hold, so you aren&apos;t charged.</p>
 
       <div className="h3">Cancelling and lateness</div>
       <ul className="rules">{RULES.map((r) => <li key={r}>{r}</li>)}</ul>

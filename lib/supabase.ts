@@ -21,7 +21,7 @@ export type Booking = {
   telegram_message_id: number | null;
   refund_amount: number | null; // pence, set when the customer cancels
   terms_accepted_at: string | null; // when they ticked the rules box at payment
-  paid_at: string | null;
+  paid_at: string | null; // when the card hold was placed; starts the no-barber clock
   reminded_at: string | null;
   slot_reminded_at: string | null;
 };
