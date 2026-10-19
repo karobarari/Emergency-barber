@@ -1,4 +1,4 @@
-import { mapsUrl, PRICING, RULES, SERVICES, SHOP, SLOTS } from "@/lib/config";
+import { barbers, mapsUrl, PRICING, RULES, SERVICES, SHOP, SLOTS } from "@/lib/config";
 import BookingFlow from "./components/BookingFlow";
 
 export default function Home({ searchParams }: { searchParams: { cancelled?: string } }) {
@@ -15,6 +15,7 @@ export default function Home({ searchParams }: { searchParams: { cancelled?: str
         address={SHOP.address}
         maps={mapsUrl()}
         rules={RULES}
+        barbers={barbers()}
       />
     </main>
   );

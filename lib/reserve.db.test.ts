@@ -25,6 +25,7 @@ describe.skipIf(!url)("reserve_booking (Postgres)", () => {
     await pool.query(sql("schema.sql"));
     await pool.query(sql("2026-10-19-capacity.sql"));
     await pool.query(sql("2026-10-19-customers.sql"));
+    await pool.query(sql("2026-10-19-preferred-barber.sql"));
   });
 
   afterAll(async () => {
@@ -43,6 +44,7 @@ describe.skipIf(!url)("reserve_booking (Postgres)", () => {
       service_id: serviceId, service_name: serviceId, slot_at: slotAt.toISOString(),
       location_type: locationType, block_start: block.start.toISOString(), block_end: block.end.toISOString(),
       service_price: 2600, advance_fee: 2500, price_tier: "12h", total: 5100, status: "pending",
+      allow_fallback: true, // not null, and reserve_booking() leaves anything missing as null
     };
     return pool.query("select * from reserve_booking($1, 3, 1)", [JSON.stringify(row)]).then((r) => r.rows[0]);
   };

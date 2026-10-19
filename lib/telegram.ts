@@ -1,6 +1,7 @@
 import "server-only";
 import { barbers, gbp, SHOP } from "./config";
 import { noShowFrom } from "./dispatch";
+import { onlyPreferredButton } from "./preferred";
 import { fmtDay, fmtTime } from "./slots";
 import type { Booking } from "./supabase";
 
@@ -14,30 +15,52 @@ const api = (method: string, body: unknown) =>
 export function bookingText(b: Booking) {
   const lines = [
     `💈 NEW LATE BOOKING · ${fmtTime(b.slot_at)} (${fmtDay(b.slot_at)})`,
+    ...(b.preferred_barber ? [`🙋 Requested: ${b.preferred_barber}${b.allow_fallback ? "" : " only"}`] : []),
     `${b.name} · ${b.phone}`,
     `${b.service_name} · ${b.status === "new" ? `${gbp(b.total)} held, charged when you accept` : gbp(b.total)}`,
     `Open ${SHOP.name}`,
   ];
+  if (b.status === "new" && b.preferred_barber && b.exclusive_until && b.allow_fallback) {
+    lines.push(`🔒 ${b.preferred_barber} has until ${fmtTime(b.exclusive_until)}, then it opens to everyone`);
+  }
   // Alerts stay in the group for days, so say the day rather than "tonight".
   if (b.status === "new" && b.release_at) {
     lines.push(`⏳ Take it by ${fmtTime(b.release_at)} (${fmtDay(b.release_at)}) or the customer's hold is released`);
   }
-  if (b.status === "confirmed") lines.push(`\n✅ ${b.barber} is taking this · card charged`);
-  if (b.status === "refunded") lines.push(`\n↩️ Nobody free, hold released`);
+  const instead = b.preferred_barber && b.barber && b.barber !== b.preferred_barber ? ` (instead of ${b.preferred_barber})` : "";
+  if (b.status === "confirmed") lines.push(`\n✅ ${b.barber} is taking this${instead} · card charged`);
+  if (b.status === "refunded") {
+    lines.push(b.preferred_barber && !b.allow_fallback ? `\n↩️ ${b.preferred_barber} couldn't, hold released` : `\n↩️ Nobody free, hold released`);
+  }
   if (b.status === "done") lines.push(`\n✔️ Done (${b.barber})`);
   if (b.status === "no_show") lines.push(`\n👻 No-show (${b.barber}) · charge kept`);
   if (b.status === "cancelled") lines.push(`\n🚫 Cancelled by customer · refunded ${gbp(b.refund_amount ?? 0)}`);
   return lines.join("\n");
 }
 
+function newKeyboard(b: Booking) {
+  const preferred = b.preferred_barber ? barbers().indexOf(b.preferred_barber) : -1;
+  // A renamed barber has no button any more, so fall back to showing everyone.
+  if (preferred >= 0 && onlyPreferredButton(b)) {
+    const name = b.preferred_barber;
+    return {
+      inline_keyboard: [
+        [{ text: `✂️ ${name}`, callback_data: `assign:${b.id}:${preferred}` }],
+        [{ text: b.allow_fallback ? `${name} can't: open to everyone` : `${name} can't: release hold`, callback_data: `cant:${b.id}` }],
+      ],
+    };
+  }
+  return {
+    inline_keyboard: [
+      barbers().map((name, i) => ({ text: `✂️ ${name}`, callback_data: `assign:${b.id}:${i}` })),
+      [{ text: "Nobody free: release hold", callback_data: `refund:${b.id}` }],
+    ],
+  };
+}
+
 const keyboard = (b: Booking) =>
   b.status === "new"
-    ? {
-        inline_keyboard: [
-          barbers().map((name, i) => ({ text: `✂️ ${name}`, callback_data: `assign:${b.id}:${i}` })),
-          [{ text: "Nobody free: release hold", callback_data: `refund:${b.id}` }],
-        ],
-      }
+    ? newKeyboard(b)
     : b.status === "confirmed"
       ? {
           inline_keyboard: [
@@ -93,6 +116,17 @@ export async function sendReminder(b: Booking, releaseAt: Date, now = new Date()
   });
   if (!res?.ok) throw new Error(`Telegram reminder failed for booking ${b.id}: ${res?.description}`);
   return null;
+}
+
+/** Tells the group a requested booking is now anyone's, replying to the alert that now has everyone's buttons. */
+export async function sendOpenedNotice(b: Booking, why: "cant" | "timeout") {
+  if (!process.env.TELEGRAM_BOT_TOKEN) return;
+  const res = await api("sendMessage", {
+    chat_id: process.env.TELEGRAM_CHAT_ID,
+    ...(b.telegram_message_id ? { reply_to_message_id: b.telegram_message_id } : {}),
+    text: `🔓 ${b.preferred_barber} ${why === "cant" ? "can't take" : "didn't take"} the ${fmtTime(b.slot_at)} (${fmtDay(b.slot_at)}). It's open to everyone now: tap your name above.`,
+  });
+  if (!res?.ok) throw new Error(`Telegram open notice failed for booking ${b.id}: ${res?.description}`);
 }
 
 /** Asks the assigned barber to close off a cut that should have finished, replying to the alert so the buttons are one tap away. */

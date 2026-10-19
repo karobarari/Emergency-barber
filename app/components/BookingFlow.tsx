@@ -5,17 +5,19 @@ type Service = { id: string; name: string; mins: number; price: number };
 type Fee = { minHoursAhead: number; fee: number };
 type Slot = { at: string; fee: number; tierLabel: string };
 type Night = { key: string; label: string; slots: Slot[] };
-type Props = { services: Service[]; fees: Fee[]; advanceDays: number; shop: string; address: string; maps: string; rules: string[] };
+type Props = {
+  services: Service[]; fees: Fee[]; advanceDays: number; shop: string; address: string; maps: string; rules: string[]; barbers: string[];
+};
 
 const gbp = (p: number) => `£${(p / 100).toFixed(p % 100 ? 2 : 0)}`;
 const fmt = (iso: string) =>
   new Date(iso).toLocaleTimeString("en-GB", { timeZone: "Europe/London", hour: "2-digit", minute: "2-digit" });
 
 function Steps({ n }: { n: number }) {
-  return <div className="steps">{[1, 2, 3, 4].map((i) => <span key={i} className={i <= n ? "on" : ""} />)}</div>;
+  return <div className="steps">{[1, 2, 3, 4, 5].map((i) => <span key={i} className={i <= n ? "on" : ""} />)}</div>;
 }
 
-export default function BookingFlow({ services, fees, advanceDays, shop, address, maps, rules }: Props) {
+export default function BookingFlow({ services, fees, advanceDays, shop, address, maps, rules, barbers }: Props) {
   const [step, setStep] = useState(1);
   const [serviceId, setServiceId] = useState<string | null>(null);
   const [nights, setNights] = useState<Night[] | null>(null);
@@ -26,6 +28,8 @@ export default function BookingFlow({ services, fees, advanceDays, shop, address
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [agreed, setAgreed] = useState(false);
+  const [preferred, setPreferred] = useState<string | null>(null); // null = no preference
+  const [allowFallback, setAllowFallback] = useState(true);
   const svc = services.find((s) => s.id === serviceId);
   const total = svc && slot ? svc.price + slot.fee : 0;
   const cheapest = Math.min(...fees.map((f) => f.fee));
@@ -65,7 +69,7 @@ export default function BookingFlow({ services, fees, advanceDays, shop, address
     const res = await fetch("/api/checkout", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ serviceId, slot: slot.at, name, phone, agreed, expectedTotal: total }),
+      body: JSON.stringify({ serviceId, slot: slot.at, name, phone, agreed, expectedTotal: total, preferredBarber: preferred, allowFallback }),
     }).catch(() => null);
     const data = await res?.json().catch(() => null);
     if (data?.url) { window.location.href = data.url; return; }
@@ -137,7 +141,7 @@ export default function BookingFlow({ services, fees, advanceDays, shop, address
           )}
         </>
       )}
-      <button className="btn" disabled={!slot} onClick={() => setStep(3)}>Add your details</button>
+      <button className="btn" disabled={!slot} onClick={() => setStep(3)}>Choose a barber</button>
       <button className="back" onClick={() => setStep(1)}>← Change service</button>
     </>
   );
@@ -145,6 +149,39 @@ export default function BookingFlow({ services, fees, advanceDays, shop, address
   if (step === 3) return (
     <>
       <Steps n={3} />
+      <h2>Do you have a preferred barber?</h2>
+      <p className="lead">We ask them first. You&apos;re only charged once a barber accepts.</p>
+      <div className="opts">
+        <button className="opt" aria-pressed={preferred === null} onClick={() => { setPreferred(null); setAllowFallback(true); }}>
+          <span><b>No preference</b><small>Whoever&apos;s free first</small></span>
+        </button>
+        {barbers.map((n) => (
+          <button key={n} className="opt" aria-pressed={preferred === n} onClick={() => setPreferred(n)}>
+            <span><b>{n}</b></span>
+          </button>
+        ))}
+      </div>
+      {preferred && (
+        <>
+          <label className="f">If {preferred} isn&apos;t available, are you happy to go with another barber?</label>
+          <div className="opts">
+            <button className="opt" aria-pressed={allowFallback} onClick={() => setAllowFallback(true)}>
+              <span><b>Yes, any barber is fine</b><small>We ask {preferred} first, then the others</small></span>
+            </button>
+            <button className="opt" aria-pressed={!allowFallback} onClick={() => setAllowFallback(false)}>
+              <span><b>No, only {preferred}</b><small>If {preferred} can&apos;t, the hold is released and you pay nothing</small></span>
+            </button>
+          </div>
+        </>
+      )}
+      <button className="btn" onClick={() => setStep(4)}>Add your details</button>
+      <button className="back" onClick={() => setStep(2)}>← Change time</button>
+    </>
+  );
+
+  if (step === 4) return (
+    <>
+      <Steps n={4} />
       <h2>Who&apos;s coming in?</h2>
       <p className="lead">We text this number when your barber is confirmed.</p>
       <label className="f" htmlFor="nm">Name</label>
@@ -152,19 +189,20 @@ export default function BookingFlow({ services, fees, advanceDays, shop, address
       <label className="f" htmlFor="ph">Mobile number</label>
       <input className="t" id="ph" type="tel" autoComplete="tel" placeholder="07700 900123" value={phone} onChange={(e) => setPhone(e.target.value)} />
       {error && <p className="err">{error}</p>}
-      <button className="btn" disabled={!name.trim() || !phone.trim()} onClick={() => { setError(""); setStep(4); }}>Review request</button>
-      <button className="back" onClick={() => setStep(2)}>← Change time</button>
+      <button className="btn" disabled={!name.trim() || !phone.trim()} onClick={() => { setError(""); setStep(5); }}>Review request</button>
+      <button className="back" onClick={() => setStep(3)}>← Change barber</button>
     </>
   );
 
   return (
     <>
-      <Steps n={4} />
+      <Steps n={5} />
       <h2>Request a barber</h2>
       <p className="lead">We hold the total on your card and only charge it when a barber accepts. If nobody can, the hold is released and you pay nothing.</p>
       <div className="sum">
         <div className="row"><span>Time</span><span className="price">{slot && `${nightLabel(slot.at)} ${fmt(slot.at)}`}</span></div>
         <div className="row"><span>Shop</span><span>{shop}</span></div>
+        <div className="row"><span>Barber</span><span>{preferred ? `${preferred}${allowFallback ? ", or another if they can't" : " only"}` : "No preference"}</span></div>
         <div className="row"><span>{svc?.name}</span><span className="price">{svc && gbp(svc.price)}</span></div>
         <div className="row"><span>Booking fee<br /><small>{slot?.tierLabel}</small></span><span className="price">{slot && gbp(slot.fee)}</span></div>
         <div className="row total"><span>Total</span><span className="price">{gbp(total)}</span></div>
@@ -180,7 +218,7 @@ export default function BookingFlow({ services, fees, advanceDays, shop, address
         </span>
       </label>
       <button className="btn" disabled={busy || !agreed} onClick={pay}>{busy ? "Opening secure payment…" : `Request booking · hold ${gbp(total)}`}</button>
-      <button className="back" onClick={() => { setError(""); setStep(3); }}>← Edit details</button>
+      <button className="back" onClick={() => { setError(""); setStep(4); }}>← Edit details</button>
     </>
   );
 }

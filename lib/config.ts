@@ -37,10 +37,11 @@ export const CANCEL_CUTOFF_MINS = 30;
 /**
  * Unclaimed bookings: re-ping the barbers' group after `remindMins`, then release the card hold automatically
  * (see lib/dispatch.ts). Bookings made 6h+ ahead give the barbers longer, but are always settled 2h before the slot.
+ * A requested barber gets the first `exclusiveMins` to themselves (see lib/preferred.ts).
  */
 export const DISPATCH = {
-  soon: { remindMins: 10, releaseMins: 20 },
-  ahead: { remindMins: 120, releaseMins: 12 * 60, releaseBeforeSlotMins: 120 },
+  soon: { remindMins: 10, releaseMins: 20, exclusiveMins: 7 },
+  ahead: { remindMins: 120, releaseMins: 12 * 60, releaseBeforeSlotMins: 120, exclusiveMins: 60 },
 };
 /** Customers get a reminder text with directions this long before their slot. */
 export const SLOT_REMINDER_MINS = 30;
@@ -81,6 +82,17 @@ export const barbers = () =>
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
+
+/**
+ * Which barber tapped a Telegram button. BARBER_TELEGRAM_IDS lists each barber's Telegram user id in the same order
+ * as BARBER_NAMES. Until it's set, taps aren't checked (`checked: false`) and anyone in the group can tap any button.
+ */
+export function tapper(telegramUserId: unknown): { checked: false } | { checked: true; name: string | null } {
+  const ids = (process.env.BARBER_TELEGRAM_IDS || "").split(",").map((s) => s.trim());
+  if (!ids.some(Boolean)) return { checked: false };
+  const i = ids.indexOf(String(telegramUserId));
+  return { checked: true, name: i >= 0 ? barbers()[i] ?? null : null };
+}
 
 export const gbp = (pence: number) => `£${(pence / 100).toFixed(2)}`;
 

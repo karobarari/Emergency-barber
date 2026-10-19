@@ -1,5 +1,5 @@
--- Run once in Supabase → SQL editor to set up a new database, then supabase/2026-10-19-capacity.sql and
--- supabase/2026-10-19-customers.sql.
+-- Run once in Supabase → SQL editor to set up a new database, then supabase/2026-10-19-capacity.sql,
+-- supabase/2026-10-19-customers.sql and supabase/2026-10-19-preferred-barber.sql.
 create extension if not exists pgcrypto;
 
 create table if not exists bookings (
@@ -20,6 +20,9 @@ create table if not exists bookings (
   status              text not null default 'pending'
                       check (status in ('pending','new','confirmed','on_the_way','arrived','done','no_show','refunded','expired','cancelled')),
   barber              text,
+  preferred_barber    text,                   -- who the customer asked for, null = no preference
+  allow_fallback      boolean not null default true, -- happy with another barber if the preferred one can't
+  exclusive_until     timestamptz,            -- only the preferred barber can accept until then
   stripe_session_id   text,
   payment_intent      text,
   telegram_message_id bigint,

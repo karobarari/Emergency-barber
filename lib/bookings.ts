@@ -1,11 +1,12 @@
 import "server-only";
 import { CANCEL_CUTOFF_MINS, DISPATCH, DONE_NUDGE_MINS, gbp, LATE_GRACE_MINS, mapsUrl, SHOP, SLOT_REMINDER_MINS } from "./config";
 import { noShowFrom, releaseAt, remindAt } from "./dispatch";
+import { exclusiveUntil, mayAccept, whenPreferredCant } from "./preferred";
 import { fmtTime, fmtWhen } from "./slots";
 import { sendSms } from "./sms";
 import { stripe } from "./stripe";
 import { db, type Booking, type Status } from "./supabase";
-import { reportError, sendBookingAlert, sendDoneNudge, sendReminder, updateBookingAlert } from "./telegram";
+import { reportError, sendBookingAlert, sendDoneNudge, sendOpenedNotice, sendReminder, updateBookingAlert } from "./telegram";
 
 /**
  * Moves a booking from one status to another only if it's still in `from`, so two barbers can't both claim it.
@@ -42,16 +43,28 @@ async function giveBack(paymentIntent: string, key: string, amount?: number): Pr
 
 /** Called by the Stripe webhook once the card hold is in place. Nothing is charged until a barber accepts. */
 export async function markHeld(id: string, paymentIntent: string | null) {
-  const { data: pending, error } = await db().from("bookings").select("slot_at, price_tier").eq("id", id).maybeSingle();
+  const { data: pending, error } = await db()
+    .from("bookings")
+    .select("slot_at, price_tier, preferred_barber, allow_fallback")
+    .eq("id", id)
+    .maybeSingle();
   if (error) throw new Error(`Booking ${id} lookup failed: ${error.message}`);
   if (!pending) return;
   const paidAt = new Date();
+  // Fixed now, so the cron, the status page and Telegram all agree on when an unclaimed hold is released.
+  let release = releaseAt(paidAt, new Date(pending.slot_at), pending.price_tier);
+  let exclusive: Date | null = null;
+  if (pending.preferred_barber) {
+    exclusive = exclusiveUntil(paidAt, pending.price_tier, release);
+    // Only that barber will do, so there's nothing to wait for once their window is over.
+    if (!pending.allow_fallback) release = exclusive;
+  }
   const b = await transition(id, ["pending"], {
     status: "new",
     payment_intent: paymentIntent,
     paid_at: paidAt.toISOString(),
-    // Fixed now, so the cron, the status page and Telegram all agree on when an unclaimed hold is released.
-    release_at: releaseAt(paidAt, new Date(pending.slot_at), pending.price_tier).toISOString(),
+    release_at: release.toISOString(),
+    exclusive_until: exclusive?.toISOString() ?? null,
   });
   if (!b) return;
   const ahead = b.price_tier !== "standard";
@@ -65,7 +78,7 @@ export async function markHeld(id: string, paymentIntent: string | null) {
   try {
     await sendSms(
       b.phone,
-      `${SHOP.name}: request sent for ${fmtWhen(b.slot_at)}. We've held ${gbp(b.total)} on your card but only charge it when a barber accepts. ` +
+      `${SHOP.name}: request sent${b.preferred_barber ? ` to ${b.preferred_barber}` : ""} for ${fmtWhen(b.slot_at)}. We've held ${gbp(b.total)} on your card but only charge it when a barber accepts. ` +
         `We'll text you as soon as one does${ahead ? `, by ${fmtWhen(b.release_at!)} at the latest` : ""}. ` +
         `Cancel free until then; after that the ${gbp(b.advance_fee)} booking fee is kept, and nothing back within ${CANCEL_CUTOFF_MINS} min. ` +
         `Track or cancel: ${process.env.SITE_URL}/booking/${b.id}`,
@@ -75,8 +88,20 @@ export async function markHeld(id: string, paymentIntent: string | null) {
   }
 }
 
-/** A barber accepts: claim the booking, then take the held money. Throws (and un-claims) if the charge fails. */
-export async function assign(id: string, barber: string) {
+export async function getBooking(id: string) {
+  const { data, error } = await db().from("bookings").select("*").eq("id", id).maybeSingle();
+  if (error) throw new Error(`Booking ${id} lookup failed: ${error.message}`);
+  return data as Booking | null;
+}
+
+/**
+ * A barber accepts: claim the booking, then take the held money. Throws (and un-claims) if the charge fails.
+ * Returns "not_allowed" if the customer asked for someone else and it's still theirs (see lib/preferred.ts).
+ */
+export async function assign(id: string, barber: string): Promise<Booking | "not_allowed" | null> {
+  const current = await getBooking(id);
+  if (!current || current.status !== "new") return null;
+  if (!mayAccept(current, barber)) return "not_allowed";
   const b = await transition(id, ["new"], { status: "confirmed", barber });
   if (!b) return null;
   if (b.payment_intent) {
@@ -92,9 +117,10 @@ export async function assign(id: string, barber: string) {
     }
   }
   await updateBookingAlert(b);
+  const instead = b.preferred_barber && b.preferred_barber !== barber ? `${b.preferred_barber} wasn't free, so ${barber} is cutting you instead. ` : "";
   await sendSms(
     b.phone,
-    `${barber} will open ${SHOP.name} for you at ${fmtWhen(b.slot_at)}. We've now charged the ${gbp(b.total)} held on your card. ` +
+    `${instead}${barber} will open ${SHOP.name} for you at ${fmtWhen(b.slot_at)}. We've now charged the ${gbp(b.total)} held on your card. ` +
       `${SHOP.address}. Directions: ${mapsUrl()} ` +
       `Running late? Reply to let us know. After ${LATE_GRACE_MINS} min the barber may leave and nothing is refunded.`,
   );
@@ -115,14 +141,63 @@ export async function refund(id: string) {
     }
   }
   await updateBookingAlert(b);
+  const onlyPreferred = b.preferred_barber && !b.allow_fallback;
   await sendSms(
     b.phone,
-    `${SHOP.name}: sorry, no barber is free for ${fmtWhen(b.slot_at)}. ` +
+    (onlyPreferred
+      ? `${SHOP.name}: sorry, ${b.preferred_barber} isn't available for ${fmtWhen(b.slot_at)}. `
+      : `${SHOP.name}: sorry, no barber is free for ${fmtWhen(b.slot_at)}. `) +
       (how === "released"
         ? `You haven't been charged. We've released the ${gbp(b.total)} hold on your card.`
-        : `We've refunded ${gbp(b.total)} to your card.`),
+        : `We've refunded ${gbp(b.total)} to your card.`) +
+      (onlyPreferred ? ` Book again with any barber: ${process.env.SITE_URL}/` : ""),
   );
   return b;
+}
+
+/**
+ * Ends the requested barber's exclusive window early: they tapped "can't", or (from the cron) their time ran out.
+ * Opens the alert to everyone if the customer is happy with another barber, otherwise releases the hold.
+ */
+export async function preferredCant(id: string, why: "cant" | "timeout" = "cant") {
+  const b = await getBooking(id);
+  if (!b || b.status !== "new" || !b.preferred_barber) return null;
+  if (whenPreferredCant(b) === "release") return refund(id);
+  // Only once, so the cron and a "can't" tap landing together don't both post.
+  const opened = await db()
+    .from("bookings")
+    .update({ exclusive_until: null })
+    .eq("id", id)
+    .eq("status", "new")
+    .not("exclusive_until", "is", null)
+    .select()
+    .maybeSingle();
+  if (opened.error) throw new Error(`Opening booking ${id} to all barbers failed: ${opened.error.message}`);
+  const o = opened.data as Booking | null;
+  if (!o) return null;
+  await updateBookingAlert(o);
+  await sendOpenedNotice(o, why);
+  return o;
+}
+
+/** Runs every couple of minutes. Opens bookings to every barber once the requested barber's window is over. */
+export async function openExpiredWindows(now = Date.now()) {
+  const { data, error } = await db()
+    .from("bookings")
+    .select("id")
+    .eq("status", "new")
+    .eq("allow_fallback", true)
+    .lte("exclusive_until", new Date(now).toISOString());
+  if (error) throw new Error(`Exclusive window query failed: ${error.message}`);
+  let opened = 0;
+  for (const { id } of data || []) {
+    try {
+      if (await preferredCant(id, "timeout")) opened++;
+    } catch (e) {
+      await reportError(`Opening booking ${id} to all barbers failed`, e);
+    }
+  }
+  return opened;
 }
 
 /**

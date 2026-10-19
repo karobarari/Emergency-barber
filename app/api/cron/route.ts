@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { chaseUnclaimed, nudgeUnfinished, remindCustomers } from "@/lib/bookings";
+import { chaseUnclaimed, nudgeUnfinished, openExpiredWindows, remindCustomers } from "@/lib/bookings";
 import { reportError } from "@/lib/telegram";
 
 export const dynamic = "force-dynamic";
@@ -12,6 +12,12 @@ export async function GET(req: Request) {
   }
   const result: Record<string, unknown> = {};
   // Each job runs even if the other fails, so a stuck refund can't hold up reminders.
+  try {
+    result.openedToAll = await openExpiredWindows();
+  } catch (e) {
+    await reportError("Opening requested bookings to all barbers failed", e);
+    result.openedToAll = "failed";
+  }
   try {
     result.noBarber = await chaseUnclaimed();
   } catch (e) {

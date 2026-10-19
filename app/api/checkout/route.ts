@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { blockFor } from "@/lib/capacity";
-import { CANCEL_CUTOFF_MINS, CAPACITY, gbp, LATE_GRACE_MINS, OPERATOR, SERVICES, SHOP } from "@/lib/config";
+import { barbers, CANCEL_CUTOFF_MINS, CAPACITY, gbp, LATE_GRACE_MINS, OPERATOR, SERVICES, SHOP } from "@/lib/config";
 import { quote } from "@/lib/pricing";
 import { fmtDay, fmtTime } from "@/lib/slots";
 import { ukMobile } from "@/lib/sms";
@@ -23,6 +23,10 @@ export async function POST(req: Request) {
   const phone = ukMobile(String(body.phone || ""));
   if (!phone) return bad("Enter a UK mobile number, like 07700 900123.");
   if (body.agreed !== true) return bad("Tick the box to agree to the cancellation and lateness rules.");
+  // null means no preference, and then any barber is fine.
+  const preferred = body.preferredBarber == null ? null : barbers().find((n) => n === body.preferredBarber);
+  if (preferred === undefined) return bad("Pick a barber from the list, or no preference.");
+  const allowFallback = preferred ? body.allowFallback !== false : true;
 
   const slot = new Date(body.slot);
   const now = new Date();
@@ -53,6 +57,7 @@ export async function POST(req: Request) {
       location_type: block.locationType, block_start: block.start.toISOString(), block_end: block.end.toISOString(),
       service_price: q.servicePrice, advance_fee: q.advanceFee, price_tier: q.tier, total: q.total,
       status: "pending",
+      preferred_barber: preferred, allow_fallback: allowFallback,
       terms_accepted_at: new Date().toISOString(),
     },
     p_barber_count: CAPACITY.barberCount,

@@ -35,6 +35,7 @@ export default async function BookingStatus({ params, searchParams }: { params: 
     pending: 0, new: 0, confirmed: 1, on_the_way: 1, arrived: 1, done: 2, no_show: -1, refunded: -1, expired: -1, cancelled: -1,
   }[b.status];
   const live = b.status === "pending" || b.status === "new" || b.status === "confirmed";
+  const onlyPreferred = !!b.preferred_barber && !b.allow_fallback;
   const quote = cancelQuote(b);
   const confirming = searchParams.cancel === "1" && quote !== null;
 
@@ -69,22 +70,32 @@ export default async function BookingStatus({ params, searchParams }: { params: 
   return (
     <main className="wrap">
       {live && !confirming && <AutoRefresh seconds={15} />}
-      <h2>{b.status === "refunded" ? "No barber free" : stage > 0 ? "You're booked in" : "Request sent"}</h2>
+      <h2>{b.status === "refunded" ? (onlyPreferred ? `${b.preferred_barber} isn't available` : "No barber free") : stage > 0 ? "You're booked in" : "Request sent"}</h2>
       <p className="lead">
         {b.service_name} · <span className="price">{fmtWhen(b.slot_at)}</span> · {gbp(b.total)}{" "}
         {b.status === "refunded" ? "not charged" : b.status === "pending" ? "processing" : stage > 0 ? "paid" : "held on your card"}
       </p>
 
       {b.status === "refunded" ? (
-        <div className="sum"><div className="row"><span>Sorry, no barber was free for this time. You haven&apos;t been charged, and the {gbp(b.total)} hold on your card has been released.</span></div></div>
+        <>
+          <div className="sum"><div className="row"><span>
+            Sorry, {onlyPreferred ? `${b.preferred_barber} isn't available` : "no barber was free"} for this time. You haven&apos;t been charged, and the {gbp(b.total)} hold on your card has been released.
+          </span></div></div>
+          {onlyPreferred && <a className="btn" href="/" style={{ display: "block", textAlign: "center", textDecoration: "none" }}>Book again with any barber</a>}
+        </>
       ) : (
         <div className="status">
           <div className={`st ${stage > 0 ? "done" : "now"}`}><span className="dot" />
             <div><b>{b.status === "pending" ? "Checking your card" : "Request sent to the barbers"}</b><small>{stage > 0 ? "Accepted" : "You're only charged if a barber accepts"}</small></div></div>
           <div className={`st ${stage > 1 ? "done" : stage === 1 ? "now" : ""}`}><span className="dot" />
-            <div><b>Barber confirmed</b><small>{b.barber ? `${b.barber} is opening the shop for you`
-              : b.release_at ? `We'll confirm your barber by ${fmtWhen(b.release_at)} and text you`
-              : "We'll text you as soon as it's confirmed"}</small></div></div>
+            <div><b>Barber confirmed</b><small>{b.barber
+              ? (b.preferred_barber && b.preferred_barber !== b.barber
+                  ? `${b.preferred_barber} wasn't free, so ${b.barber} is cutting you instead`
+                  : `${b.barber} is opening the shop for you`)
+              : [
+                  b.preferred_barber && `You asked for ${b.preferred_barber}${b.allow_fallback ? ", or another barber if they can't" : " only"}.`,
+                  b.release_at ? `We'll confirm your barber by ${fmtWhen(b.release_at)} and text you` : "We'll text you as soon as it's confirmed",
+                ].filter(Boolean).join(" ")}</small></div></div>
           <div className={`st ${stage >= 2 ? "done" : ""}`}><span className="dot" />
             <div><b>In the chair</b><small>{fmtWhen(b.slot_at)} at {SHOP.name}</small></div></div>
         </div>

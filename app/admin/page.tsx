@@ -1,7 +1,8 @@
 import { revalidatePath } from "next/cache";
-import { assign, complete, noShow, refund } from "@/lib/bookings";
+import { assign, complete, noShow, preferredCant, refund } from "@/lib/bookings";
 import { barbers, gbp } from "@/lib/config";
 import { noShowFrom } from "@/lib/dispatch";
+import { isExclusive, mayAccept } from "@/lib/preferred";
 import { fmtDay, fmtTime } from "@/lib/slots";
 import { db, type Booking } from "@/lib/supabase";
 import { reportError } from "@/lib/telegram";
@@ -18,6 +19,13 @@ async function act(form: FormData) {
       await assign(id, String(form.get("barber")));
     } catch (e) {
       await reportError(`Charging the card failed when assigning booking ${id} from admin`, e);
+    }
+  }
+  if (action === "cant") {
+    try {
+      await preferredCant(id);
+    } catch (e) {
+      await reportError(`"Can't" from admin failed for booking ${id}`, e);
     }
   }
   if (action === "refund") await refund(id);
@@ -55,10 +63,16 @@ export default async function Admin() {
       </div>
       <div><b>{b.name}</b> · {b.service_name} · <span className="price">{gbp(b.total)}</span></div>
       <div className="cmeta">{b.phone}{b.barber ? ` · ${b.barber}` : ""}{b.status === "cancelled" ? ` · refunded ${gbp(b.refund_amount ?? 0)}` : ""}</div>
+      {b.preferred_barber && (
+        <div className="cmeta">
+          Requested {b.preferred_barber}{b.allow_fallback ? "" : " only"}
+          {b.status === "new" && isExclusive(b, now) && b.allow_fallback ? `, theirs until ${fmtTime(b.exclusive_until!)}` : ""}
+        </div>
+      )}
       {b.status === "new" && (
         <>
           <div className="assign">
-            {barbers().map((n) => (
+            {barbers().filter((n) => mayAccept(b, n, now)).map((n) => (
               <form action={act} key={n}>
                 <input type="hidden" name="id" value={b.id} />
                 <input type="hidden" name="action" value="assign" />
@@ -72,6 +86,13 @@ export default async function Admin() {
             <input type="hidden" name="action" value="refund" />
             <button className="small">Nobody free? Release customer&apos;s hold</button>
           </form>
+          {b.preferred_barber && b.allow_fallback && b.exclusive_until && (
+            <form action={act}>
+              <input type="hidden" name="id" value={b.id} />
+              <input type="hidden" name="action" value="cant" />
+              <button className="small">{b.preferred_barber} can&apos;t? Open to everyone</button>
+            </form>
+          )}
         </>
       )}
       {b.status === "confirmed" && (

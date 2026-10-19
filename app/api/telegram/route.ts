@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { assign, complete, noShow, refund } from "@/lib/bookings";
-import { barbers, LATE_GRACE_MINS } from "@/lib/config";
+import { assign, complete, getBooking, noShow, preferredCant, refund } from "@/lib/bookings";
+import { barbers, LATE_GRACE_MINS, tapper } from "@/lib/config";
 import { fmtTime } from "@/lib/slots";
 import { answerCallback, reportError } from "@/lib/telegram";
 
@@ -20,11 +20,25 @@ export async function POST(req: Request) {
   }
 
   const [action, id, idx] = String(cq.data).split(":");
+  // Once BARBER_TELEGRAM_IDS is set, barbers can only tap their own buttons.
+  const who = tapper(cq.from?.id);
+  const notYou = async (barber: string | null) => {
+    if (!who.checked || who.name === barber) return false;
+    await answerCallback(cq.id, barber ? `Only ${barber} can tap this` : "Not your booking");
+    return true;
+  };
+
   if (action === "assign") {
     const name = barbers()[Number(idx)];
+    if (await notYou(name ?? null)) return NextResponse.json({ ok: true });
     try {
       const b = name ? await assign(id, name) : null;
-      await answerCallback(cq.id, b ? `Assigned to ${name}. Card charged, customer texted.` : "Already taken or released");
+      await answerCallback(
+        cq.id,
+        b === "not_allowed" ? "The customer asked for another barber. Wait until it opens to everyone."
+          : b ? `Assigned to ${name}. Card charged, customer texted.`
+          : "Already taken or released",
+      );
     } catch (e) {
       await reportError(`Charging the card failed when ${name} took booking ${id}`, e);
       await answerCallback(cq.id, "Couldn't charge the customer's card. Don't open up yet. Try again in a moment.");
@@ -37,7 +51,26 @@ export async function POST(req: Request) {
       await reportError(`Releasing the hold from Telegram failed for booking ${id}`, e);
       await answerCallback(cq.id, "Couldn't release the hold. Try again or cancel the payment in Stripe.");
     }
-  } else if (action === "done") {
+  } else if (action === "cant") {
+    try {
+      const current = await getBooking(id);
+      if (current && (await notYou(current.preferred_barber))) return NextResponse.json({ ok: true });
+      const b = await preferredCant(id);
+      await answerCallback(
+        cq.id,
+        !b ? "Already handled" : b.status === "refunded" ? "Hold released. Customer texted." : "Open to everyone now.",
+      );
+    } catch (e) {
+      await reportError(`"Can't" from Telegram failed for booking ${id}`, e);
+      await answerCallback(cq.id, "Something went wrong. Try again in a moment.");
+    }
+  } else if ((action === "done" || action === "noshow") && who.checked) {
+    // Only the barber who took the job closes it off.
+    const current = await getBooking(id).catch(() => null);
+    if (current && (await notYou(current.barber))) return NextResponse.json({ ok: true });
+  }
+
+  if (action === "done") {
     try {
       const b = await complete(id);
       await answerCallback(cq.id, b ? "Marked done. Thanks!" : "Already closed off");

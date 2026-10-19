@@ -36,6 +36,9 @@ export type Booking = {
   total: number;
   status: Status;
   barber: string | null;
+  preferred_barber: string | null; // who the customer asked for, null = no preference
+  allow_fallback: boolean; // happy with another barber if the preferred one can't
+  exclusive_until: string | null; // only the preferred barber can accept until then; cleared when it opens to all
   stripe_session_id: string | null;
   payment_intent: string | null;
   telegram_message_id: number | null;
