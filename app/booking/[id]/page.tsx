@@ -1,7 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import AutoRefresh from "@/app/components/AutoRefresh";
 import { cancel, cancelQuote } from "@/lib/bookings";
-import { gbp, mapsUrl, RULES, SHOP } from "@/lib/config";
+import { gbp, LATE_GRACE_MINS, mapsUrl, RULES, SHOP } from "@/lib/config";
 import { fmtWhen } from "@/lib/slots";
 import { db, type Booking } from "@/lib/supabase";
 import { reportError } from "@/lib/telegram";
@@ -31,7 +31,9 @@ export default async function BookingStatus({ params, searchParams }: { params: 
   const b = data as Booking | null;
   if (!b || b.status === "expired") notFound();
 
-  const stage = { pending: 0, new: 0, confirmed: 1, done: 2, refunded: -1, expired: -1, cancelled: -1 }[b.status];
+  const stage = {
+    pending: 0, new: 0, confirmed: 1, on_the_way: 1, arrived: 1, done: 2, no_show: -1, refunded: -1, expired: -1, cancelled: -1,
+  }[b.status];
   const live = b.status === "pending" || b.status === "new" || b.status === "confirmed";
   const quote = cancelQuote(b);
   const confirming = searchParams.cancel === "1" && quote !== null;
@@ -47,6 +49,18 @@ export default async function BookingStatus({ params, searchParams }: { params: 
           {!b.barber ? `You weren't charged. We've released the ${gbp(b.total)} hold on your card; banks usually drop it within a few days.`
             : back > 0 ? `${gbp(back)} is on its way back to your card. Refunds usually show within 5–10 working days.`
             : "No refund was due because the booking was cancelled within 30 minutes of the slot."}
+        </span></div></div>
+      </main>
+    );
+  }
+
+  if (b.status === "no_show") {
+    return (
+      <main className="wrap">
+        <h2>Marked as a no-show</h2>
+        <p className="lead">{b.service_name} · <span className="price">{fmtWhen(b.slot_at)}</span></p>
+        <div className="sum"><div className="row"><span>
+          {b.barber} waited at {SHOP.name}, but you didn&apos;t arrive within {LATE_GRACE_MINS} minutes of your slot. As the booking rules say, the {gbp(b.total)} isn&apos;t refunded. If something went wrong, reply to our text.
         </span></div></div>
       </main>
     );

@@ -1,4 +1,5 @@
--- Run once in Supabase → SQL editor to set up a new database, then supabase/2026-10-19-capacity.sql.
+-- Run once in Supabase → SQL editor to set up a new database, then supabase/2026-10-19-capacity.sql and
+-- supabase/2026-10-19-customers.sql.
 create extension if not exists pgcrypto;
 
 create table if not exists bookings (
@@ -17,7 +18,7 @@ create table if not exists bookings (
   price_tier          text not null check (price_tier in ('12h','6h','standard')),
   total               int  not null,          -- pence
   status              text not null default 'pending'
-                      check (status in ('pending','new','confirmed','done','refunded','expired','cancelled')),
+                      check (status in ('pending','new','confirmed','on_the_way','arrived','done','no_show','refunded','expired','cancelled')),
   barber              text,
   stripe_session_id   text,
   payment_intent      text,
@@ -27,7 +28,8 @@ create table if not exists bookings (
   paid_at             timestamptz,            -- when the card hold was placed; starts the no-barber clock
   release_at          timestamptz,            -- when the cron releases the hold if no barber has taken it
   reminded_at         timestamptz,            -- when the group was re-pinged about an unclaimed booking
-  slot_reminded_at    timestamptz             -- when the customer got the 30-min reminder text
+  slot_reminded_at    timestamptz,            -- when the customer got the 30-min reminder text
+  done_nudged_at      timestamptz             -- when the barber was asked to tap Done
 );
 
 -- Bookings are inserted through reserve_booking(), which checks there's a barber and chair free.

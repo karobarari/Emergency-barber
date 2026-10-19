@@ -37,7 +37,7 @@ header{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var
 h2{font-family:var(--f-display);font-weight:800;font-size:1.6rem;line-height:1.15;margin:14px 0 6px;text-wrap:balance;letter-spacing:-.015em}
 .lead{color:var(--muted);margin:0 0 18px}
 label.f{display:block;font-weight:700;font-size:.85rem;margin:14px 0 6px}
-input.t{width:100%;font:inherit;padding:13px 14px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--ink)}
+input.t,textarea.t{width:100%;font:inherit;padding:13px 14px;border-radius:10px;border:1px solid var(--line);background:var(--surface);color:var(--ink)}
 .err{color:var(--accent);font-size:.88rem;margin-top:8px}
 .btn{width:100%;font:inherit;font-weight:700;font-size:1.02rem;padding:15px;border-radius:12px;border:0;background:var(--accent);color:var(--accent-ink);cursor:pointer;margin-top:20px}
 .btn.ghost{background:transparent;color:var(--ink);border:1px solid var(--line)}

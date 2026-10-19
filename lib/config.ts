@@ -45,6 +45,10 @@ export const DISPATCH = {
 /** Customers get a reminder text with directions this long before their slot. */
 export const SLOT_REMINDER_MINS = 30;
 export const LATE_GRACE_MINS = 15;
+/** A barber can mark a no-show once the customer is this late (the lateness grace). */
+export const NO_SHOW_AFTER_MINS = LATE_GRACE_MINS;
+/** If a confirmed booking still isn't marked done this long after it should have finished, the barber gets a nudge. */
+export const DONE_NUDGE_MINS = 30;
 
 export const SERVICES = [
   { id: "cut", name: "Skin fade / haircut", mins: 40, price: 26_00 },

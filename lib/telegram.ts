@@ -1,5 +1,6 @@
 import "server-only";
 import { barbers, gbp, SHOP } from "./config";
+import { noShowFrom } from "./dispatch";
 import { fmtDay, fmtTime } from "./slots";
 import type { Booking } from "./supabase";
 
@@ -24,6 +25,7 @@ export function bookingText(b: Booking) {
   if (b.status === "confirmed") lines.push(`\n✅ ${b.barber} is taking this · card charged`);
   if (b.status === "refunded") lines.push(`\n↩️ Nobody free, hold released`);
   if (b.status === "done") lines.push(`\n✔️ Done (${b.barber})`);
+  if (b.status === "no_show") lines.push(`\n👻 No-show (${b.barber}) · charge kept`);
   if (b.status === "cancelled") lines.push(`\n🚫 Cancelled by customer · refunded ${gbp(b.refund_amount ?? 0)}`);
   return lines.join("\n");
 }
@@ -36,7 +38,17 @@ const keyboard = (b: Booking) =>
           [{ text: "Nobody free: release hold", callback_data: `refund:${b.id}` }],
         ],
       }
-    : { inline_keyboard: [] };
+    : b.status === "confirmed"
+      ? {
+          inline_keyboard: [
+            [
+              { text: "✔️ Done", callback_data: `done:${b.id}` },
+              // Always shown; the server refuses it until the customer is past the lateness grace.
+              { text: `👻 No-show (from ${fmtTime(noShowFrom(new Date(b.slot_at)))})`, callback_data: `noshow:${b.id}` },
+            ],
+          ],
+        }
+      : { inline_keyboard: [] };
 
 /** Sends the alert to the barbers' group. Returns the message id. */
 export async function sendBookingAlert(b: Booking): Promise<number | null> {
@@ -81,6 +93,17 @@ export async function sendReminder(b: Booking, releaseAt: Date, now = new Date()
   });
   if (!res?.ok) throw new Error(`Telegram reminder failed for booking ${b.id}: ${res?.description}`);
   return null;
+}
+
+/** Asks the assigned barber to close off a cut that should have finished, replying to the alert so the buttons are one tap away. */
+export async function sendDoneNudge(b: Booking) {
+  if (!process.env.TELEGRAM_BOT_TOKEN) return;
+  const res = await api("sendMessage", {
+    chat_id: process.env.TELEGRAM_CHAT_ID,
+    ...(b.telegram_message_id ? { reply_to_message_id: b.telegram_message_id } : {}),
+    text: `🧾 ${b.barber}, is ${b.name}'s ${fmtTime(b.slot_at)} cut (${fmtDay(b.slot_at)}) finished? Tap Done above, or No-show if they never came.`,
+  });
+  if (!res?.ok) throw new Error(`Telegram Done nudge failed for booking ${b.id}: ${res?.description}`);
 }
 
 export const answerCallback = (id: string, text: string) =>

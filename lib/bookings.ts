@@ -1,11 +1,11 @@
 import "server-only";
-import { CANCEL_CUTOFF_MINS, DISPATCH, gbp, LATE_GRACE_MINS, mapsUrl, SHOP, SLOT_REMINDER_MINS } from "./config";
-import { releaseAt, remindAt } from "./dispatch";
+import { CANCEL_CUTOFF_MINS, DISPATCH, DONE_NUDGE_MINS, gbp, LATE_GRACE_MINS, mapsUrl, SHOP, SLOT_REMINDER_MINS } from "./config";
+import { noShowFrom, releaseAt, remindAt } from "./dispatch";
 import { fmtTime, fmtWhen } from "./slots";
 import { sendSms } from "./sms";
 import { stripe } from "./stripe";
 import { db, type Booking, type Status } from "./supabase";
-import { reportError, sendBookingAlert, sendReminder, updateBookingAlert } from "./telegram";
+import { reportError, sendBookingAlert, sendDoneNudge, sendReminder, updateBookingAlert } from "./telegram";
 
 /**
  * Moves a booking from one status to another only if it's still in `from`, so two barbers can't both claim it.
@@ -179,10 +179,81 @@ export async function cancel(id: string, expected: number): Promise<CancelResult
   return { ok: true, booking: b };
 }
 
+/** The cut is finished. Shop visits are counted on the customer, which later unlocks home visits (SPEC-v2 §6). */
 export async function complete(id: string) {
   const b = await transition(id, ["confirmed"], { status: "done" });
-  if (b) await updateBookingAlert(b);
+  if (!b) return null;
+  if (b.location_type === "shop") {
+    // The booking is already done, so a retry would skip this. Report it instead, and fix the count by hand.
+    const { error } = await db().rpc("record_shop_visit", { p_phone: b.phone, p_name: b.name, p_barber: b.barber });
+    if (error) await reportError(`Couldn't count the visit for ${b.phone} (booking ${id})`, error);
+  }
+  await updateBookingAlert(b);
   return b;
+}
+
+export type NoShowResult = { ok: true; booking: Booking } | { ok: false; from: Date | null };
+
+/**
+ * The customer didn't turn up. Only once they're past the lateness grace, so a barber can't mark it early by mistake.
+ * The full charge is kept. `from` comes back when it's too early, or null if the booking isn't confirmed.
+ */
+export async function noShow(id: string, now = Date.now()): Promise<NoShowResult> {
+  const { data } = await db().from("bookings").select("slot_at").eq("id", id).maybeSingle();
+  if (!data) return { ok: false, from: null };
+  const from = noShowFrom(new Date(data.slot_at));
+  if (now < from.getTime()) return { ok: false, from };
+  const b = await transition(id, ["confirmed"], { status: "no_show" });
+  if (!b) return { ok: false, from: null };
+  try {
+    await updateBookingAlert(b);
+  } catch (e) {
+    await reportError(`Telegram update failed for no-show ${id}`, e);
+  }
+  await sendSms(
+    b.phone,
+    `${SHOP.name}: we waited for you at ${fmtTime(b.slot_at)} but you didn't arrive, so your booking is marked as a no-show. ` +
+      `As the booking rules say, the ${gbp(b.total)} isn't refunded. Reply if something went wrong.`,
+  );
+  return { ok: true, booking: b };
+}
+
+/**
+ * Runs every couple of minutes. Asks the barber once to tap Done or No-show when a cut should have finished
+ * a while ago, so finished visits get counted.
+ */
+export async function nudgeUnfinished(now = Date.now()) {
+  // block_end is when the cut should finish, so anything ending before this is overdue.
+  const overdue = new Date(now - DONE_NUDGE_MINS * 60e3).toISOString();
+  const { data, error } = await db()
+    .from("bookings")
+    .select("*")
+    .eq("status", "confirmed")
+    .is("done_nudged_at", null)
+    .lt("block_end", overdue);
+  if (error) throw new Error(`Unfinished bookings query failed: ${error.message}`);
+
+  let sent = 0;
+  for (const b of (data || []) as Booking[]) {
+    // Claim it first so two overlapping runs can't both nudge.
+    const { data: claimed } = await db()
+      .from("bookings")
+      .update({ done_nudged_at: new Date(now).toISOString() })
+      .eq("id", b.id)
+      .is("done_nudged_at", null)
+      .select("id")
+      .maybeSingle();
+    if (!claimed) continue;
+    try {
+      await updateBookingAlert(b); // alerts confirmed before the Done button existed get it now
+      await sendDoneNudge(b);
+      sent++;
+    } catch (e) {
+      await db().from("bookings").update({ done_nudged_at: null }).eq("id", b.id); // try again next run
+      await reportError(`Done nudge failed for booking ${b.id}`, e);
+    }
+  }
+  return sent;
 }
 
 /**

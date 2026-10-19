@@ -24,6 +24,7 @@ describe.skipIf(!url)("reserve_booking (Postgres)", () => {
     pool = new Pool({ connectionString: url, options: `-c search_path=${schema},public`, max: 12 });
     await pool.query(sql("schema.sql"));
     await pool.query(sql("2026-10-19-capacity.sql"));
+    await pool.query(sql("2026-10-19-customers.sql"));
   });
 
   afterAll(async () => {
@@ -88,6 +89,21 @@ describe.skipIf(!url)("reserve_booking (Postgres)", () => {
       Array.from({ length: 10 }, () => reserve("06", "21:00", { locationType: "home" })),
     );
     expect(outcomes(results)).toEqual({ ok: 2, full: 8 });
+  });
+
+  it("counts shop visits per customer and unlocks home visits", async () => {
+    const visit = (barber: string) =>
+      pool.query("select * from record_shop_visit($1, $2, $3)", ["+447700900999", "Sam", barber]).then((r) => r.rows[0]);
+    expect(await visit("Joe")).toMatchObject({ completed_shop_visits: 1, last_barber: "Joe", home_allowed: true, blocked: false });
+    await pool.query("update customers set blocked = true, notes = 'rude' where phone = '+447700900999'");
+    // A later visit counts, but doesn't undo a block or wipe notes.
+    expect(await visit("Oscar")).toMatchObject({ completed_shop_visits: 2, last_barber: "Oscar", blocked: true, notes: "rude" });
+  });
+
+  it("allows the no-show status, which frees the place", async () => {
+    const b = await reserve("07", "19:00");
+    await pool.query("update bookings set status = 'no_show' where id = $1", [b.id]);
+    await expect(reserve("07", "19:00")).resolves.toBeTruthy();
   });
 
   it("refuses a booking without blocks", async () => {

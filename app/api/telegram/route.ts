@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
-import { assign, refund } from "@/lib/bookings";
-import { barbers } from "@/lib/config";
+import { assign, complete, noShow, refund } from "@/lib/bookings";
+import { barbers, LATE_GRACE_MINS } from "@/lib/config";
+import { fmtTime } from "@/lib/slots";
 import { answerCallback, reportError } from "@/lib/telegram";
 
 // Telegram calls this when someone taps a button on a booking alert.
@@ -35,6 +36,27 @@ export async function POST(req: Request) {
     } catch (e) {
       await reportError(`Releasing the hold from Telegram failed for booking ${id}`, e);
       await answerCallback(cq.id, "Couldn't release the hold. Try again or cancel the payment in Stripe.");
+    }
+  } else if (action === "done") {
+    try {
+      const b = await complete(id);
+      await answerCallback(cq.id, b ? "Marked done. Thanks!" : "Already closed off");
+    } catch (e) {
+      await reportError(`Marking booking ${id} done from Telegram failed`, e);
+      await answerCallback(cq.id, "Couldn't mark it done. Try again in a moment.");
+    }
+  } else if (action === "noshow") {
+    try {
+      const r = await noShow(id);
+      await answerCallback(
+        cq.id,
+        r.ok ? "Marked as a no-show. Charge kept, customer texted."
+          : r.from ? `Too early. No-show can be marked from ${fmtTime(r.from)}, once they're ${LATE_GRACE_MINS} min late.`
+          : "Already closed off",
+      );
+    } catch (e) {
+      await reportError(`Marking booking ${id} a no-show from Telegram failed`, e);
+      await answerCallback(cq.id, "Couldn't mark the no-show. Try again in a moment.");
     }
   }
   return NextResponse.json({ ok: true });

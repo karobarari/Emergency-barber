@@ -1,6 +1,7 @@
 import { revalidatePath } from "next/cache";
-import { assign, complete, refund } from "@/lib/bookings";
+import { assign, complete, noShow, refund } from "@/lib/bookings";
 import { barbers, gbp } from "@/lib/config";
+import { noShowFrom } from "@/lib/dispatch";
 import { fmtDay, fmtTime } from "@/lib/slots";
 import { db, type Booking } from "@/lib/supabase";
 import { reportError } from "@/lib/telegram";
@@ -21,12 +22,14 @@ async function act(form: FormData) {
   }
   if (action === "refund") await refund(id);
   if (action === "done") await complete(id);
+  if (action === "noshow") await noShow(id);
   revalidatePath("/admin");
 }
 
 const LABEL: Record<string, string> = {
-  new: "Needs barber", confirmed: "Confirmed", done: "Done", refunded: "Nobody free", cancelled: "Cancelled",
+  new: "Needs barber", confirmed: "Confirmed", done: "Done", no_show: "No-show", refunded: "Nobody free", cancelled: "Cancelled",
 };
+const FINISHED = ["done", "no_show", "refunded", "cancelled"];
 
 export default async function Admin() {
   const since = new Date(Date.now() - 18 * 3600e3).toISOString();
@@ -34,12 +37,14 @@ export default async function Admin() {
     .from("bookings")
     .select("*")
     .gte("slot_at", since)
-    .in("status", ["new", "confirmed", "done", "refunded", "cancelled"])
+    .in("status", ["new", "confirmed", ...FINISHED])
     .order("slot_at");
   const rows = (data || []) as Booking[];
   const live = rows.filter((b) => b.status === "new" || b.status === "confirmed");
-  const past = rows.filter((b) => b.status === "done" || b.status === "refunded" || b.status === "cancelled");
+  const past = rows.filter((b) => FINISHED.includes(b.status));
+  const now = Date.now();
   // Unclaimed bookings are only held, not charged. Cancellations keep whatever wasn't refunded (the booking fee, or everything inside 30 min).
+  // No-shows keep the full charge.
   const taken = rows.filter((b) => b.status !== "refunded" && b.status !== "new").reduce((a, b) => a + b.total - (b.refund_amount ?? 0), 0);
 
   const card = (b: Booking) => (
@@ -70,11 +75,22 @@ export default async function Admin() {
         </>
       )}
       {b.status === "confirmed" && (
-        <form action={act}>
-          <input type="hidden" name="id" value={b.id} />
-          <input type="hidden" name="action" value="done" />
-          <button className="btn ghost">Mark cut as done</button>
-        </form>
+        <>
+          <form action={act}>
+            <input type="hidden" name="id" value={b.id} />
+            <input type="hidden" name="action" value="done" />
+            <button className="btn ghost">Mark cut as done</button>
+          </form>
+          {now >= noShowFrom(new Date(b.slot_at)).getTime() ? (
+            <form action={act}>
+              <input type="hidden" name="id" value={b.id} />
+              <input type="hidden" name="action" value="noshow" />
+              <button className="small">Customer didn&apos;t come? Mark no-show (charge kept)</button>
+            </form>
+          ) : (
+            <span className="muted">No-show can be marked from {fmtTime(noShowFrom(new Date(b.slot_at)))}</span>
+          )}
+        </>
       )}
     </div>
   );
@@ -83,6 +99,7 @@ export default async function Admin() {
     <main className="wrap">
       <AutoRefresh seconds={20} />
       <h2>Dispatch</h2>
+      <p className="note"><a href="/admin/customers">Customers</a></p>
       <div className="kpis">
         <div className="kpi"><b>{rows.filter((b) => b.status === "new").length}</b><span>Need a barber</span></div>
         <div className="kpi"><b>{rows.filter((b) => b.status === "confirmed").length}</b><span>Confirmed</span></div>

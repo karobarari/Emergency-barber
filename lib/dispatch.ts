@@ -1,4 +1,4 @@
-import { DISPATCH, type PriceTier } from "./config";
+import { DISPATCH, DONE_NUDGE_MINS, NO_SHOW_AFTER_MINS, type PriceTier } from "./config";
 
 const mins = (n: number) => n * 60e3;
 
@@ -23,3 +23,9 @@ export function releaseAt(paidAt: Date, slotAt: Date, tier: PriceTier): Date {
   // Never give the barbers less time than a last-minute booking gets.
   return new Date(Math.max(ahead, soon));
 }
+
+/** When the barber can mark a shop booking as a no-show: once the customer is past the lateness grace. */
+export const noShowFrom = (slotAt: Date) => new Date(slotAt.getTime() + mins(NO_SHOW_AFTER_MINS));
+
+/** When to nudge the barber about a confirmed booking that still isn't marked done. `blockEnd` is when the cut should finish. */
+export const doneNudgeAt = (blockEnd: Date) => new Date(blockEnd.getTime() + mins(DONE_NUDGE_MINS));

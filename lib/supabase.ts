@@ -3,7 +3,21 @@ import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import type { PriceTier } from "./config";
 import type { LocationType } from "./pricing";
 
-export type Status = "pending" | "new" | "confirmed" | "done" | "refunded" | "expired" | "cancelled";
+export type Status =
+  | "pending" | "new" | "confirmed" | "on_the_way" | "arrived" | "done" | "no_show" | "refunded" | "expired" | "cancelled";
+
+/** Remembered by phone once a shop cut is done (supabase/2026-10-19-customers.sql). */
+export type Customer = {
+  phone: string;
+  name: string | null;
+  completed_shop_visits: number;
+  last_barber: string | null;
+  home_allowed: boolean;
+  blocked: boolean; // overrides home_allowed
+  notes: string | null; // private, admin only
+  created_at: string;
+  updated_at: string;
+};
 
 export type Booking = {
   id: string;
@@ -31,6 +45,7 @@ export type Booking = {
   release_at: string | null; // when the hold is released if no barber has taken it
   reminded_at: string | null;
   slot_reminded_at: string | null;
+  done_nudged_at: string | null; // when the barber was asked to tap Done
 };
 
 let client: SupabaseClient | null = null;
