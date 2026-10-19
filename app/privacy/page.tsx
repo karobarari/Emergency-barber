@@ -8,7 +8,7 @@ export default function Privacy() {
   return (
     <main className="wrap legal">
       <h2>Privacy notice</h2>
-      <p className="lead">Last updated 15 October 2026</p>
+      <p className="lead">Last updated 19 October 2026</p>
 
       <div className="h3">Who is responsible for your data</div>
       <p>
@@ -19,6 +19,8 @@ export default function Privacy() {
       <ul className="rules">
         <li>Your name and UK mobile number.</li>
         <li>Your booking: service, time, price, status, which barber took it, any refund, and when you agreed to the booking rules.</li>
+        <li>For home visits: the address and postcode you give us, and the drive time from the shop.</li>
+        <li>How many cuts you&apos;ve had at the shop and which barber you saw last, so we know when home visits are open to you.</li>
         <li>Stripe collects your card details and email address for the payment and receipt. We never see your full card number.</li>
       </ul>
 
@@ -33,7 +35,8 @@ export default function Privacy() {
       <ul className="rules">
         <li>Our barbers, through a private Telegram group, so one of them can take your booking.</li>
         <li>Stripe, to take payments, send receipts and pay refunds.</li>
-        <li>Twilio, to send you texts.</li>
+        <li>Twilio, to send you texts and the code that checks your number for home visits.</li>
+        <li>postcodes.io and OpenRouteService, which get your postcode only (never your name or number) to work out the drive from the shop.</li>
         <li>Supabase, which hosts our booking database, and Vercel, which hosts this website.</li>
       </ul>
       <p>
@@ -60,8 +63,9 @@ export default function Privacy() {
 
       <div className="h3">Cookies</div>
       <p>
-        This website doesn&apos;t use tracking or advertising cookies. Stripe&apos;s payment page sets its own cookies to
-        prevent fraud.
+        This website doesn&apos;t use tracking or advertising cookies. When you check your number for a home visit, we set
+        one cookie that remembers it for 30 minutes, so you don&apos;t need a new code at every step. Stripe&apos;s payment
+        page sets its own cookies to prevent fraud.
       </p>
     </main>
   );

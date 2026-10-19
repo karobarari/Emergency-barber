@@ -1,12 +1,15 @@
 import "server-only";
-import { CANCEL_CUTOFF_MINS, DISPATCH, DONE_NUDGE_MINS, gbp, LATE_GRACE_MINS, mapsUrl, SHOP, SLOT_REMINDER_MINS } from "./config";
-import { noShowFrom, releaseAt, remindAt } from "./dispatch";
+import { CANCEL_CUTOFF_MINS, DISPATCH, DONE_NUDGE_MINS, gbp, LATE_GRACE_MINS, mapsUrl, NO_SHOW_AFTER_MINS, SHOP, SLOT_REMINDER_MINS } from "./config";
+import { releaseAt, remindAt } from "./dispatch";
 import { exclusiveUntil, mayAccept, whenPreferredCant } from "./preferred";
 import { fmtTime, fmtWhen } from "./slots";
 import { sendSms } from "./sms";
 import { stripe } from "./stripe";
 import { db, type Booking, type Status } from "./supabase";
-import { reportError, sendBookingAlert, sendDoneNudge, sendOpenedNotice, sendReminder, updateBookingAlert } from "./telegram";
+import {
+  reportError, sendBookingAlert, sendDoneNudge, sendOpenedNotice, sendReminder, sendSafetyAlert, updateBookingAlert,
+} from "./telegram";
+import { cancelQuote, isMobile, noShowFrom, safetyCheckAt } from "./visit";
 
 /**
  * Moves a booking from one status to another only if it's still in `from`, so two barbers can't both claim it.
@@ -80,7 +83,9 @@ export async function markHeld(id: string, paymentIntent: string | null) {
       b.phone,
       `${SHOP.name}: request sent${b.preferred_barber ? ` to ${b.preferred_barber}` : ""} for ${fmtWhen(b.slot_at)}. We've held ${gbp(b.total)} on your card but only charge it when a barber accepts. ` +
         `We'll text you as soon as one does${ahead ? `, by ${fmtWhen(b.release_at!)} at the latest` : ""}. ` +
-        `Cancel free until then; after that the ${gbp(b.advance_fee)} booking fee is kept, and nothing back within ${CANCEL_CUTOFF_MINS} min. ` +
+        (isMobile(b)
+          ? `Cancel free until then; after that the booking fee and travel are kept, and nothing back once your barber sets off. `
+          : `Cancel free until then; after that the ${gbp(b.advance_fee)} booking fee is kept, and nothing back within ${CANCEL_CUTOFF_MINS} min. `) +
         `Track or cancel: ${process.env.SITE_URL}/booking/${b.id}`,
     );
   } catch (e) {
@@ -120,9 +125,12 @@ export async function assign(id: string, barber: string): Promise<Booking | "not
   const instead = b.preferred_barber && b.preferred_barber !== barber ? `${b.preferred_barber} wasn't free, so ${barber} is cutting you instead. ` : "";
   await sendSms(
     b.phone,
-    `${instead}${barber} will open ${SHOP.name} for you at ${fmtWhen(b.slot_at)}. We've now charged the ${gbp(b.total)} held on your card. ` +
-      `${SHOP.address}. Directions: ${mapsUrl()} ` +
-      `Running late? Reply to let us know. After ${LATE_GRACE_MINS} min the barber may leave and nothing is refunded.`,
+    isMobile(b)
+      ? `${instead}${barber} is coming to ${b.address}, ${b.postcode} for ${fmtWhen(b.slot_at)}. We've now charged the ${gbp(b.total)} held on your card. ` +
+          `We'll text you when ${barber} sets off.`
+      : `${instead}${barber} will open ${SHOP.name} for you at ${fmtWhen(b.slot_at)}. We've now charged the ${gbp(b.total)} held on your card. ` +
+          `${SHOP.address}. Directions: ${mapsUrl()} ` +
+          `Running late? Reply to let us know. After ${LATE_GRACE_MINS} min the barber may leave and nothing is refunded.`,
   );
   return b;
 }
@@ -200,19 +208,6 @@ export async function openExpiredWindows(now = Date.now()) {
   return opened;
 }
 
-/**
- * What a customer gets back if they cancel now, or null if they can't cancel.
- * Before a barber confirms: everything (the hold is released). Confirmed with 30+ min to go: the service price, the booking fee is kept
- * because a barber has committed to opening up. Under 30 min: nothing.
- */
-export function cancelQuote(b: Booking, now = Date.now()): number | null {
-  const minsLeft = (new Date(b.slot_at).getTime() - now) / 60e3;
-  if (minsLeft <= 0) return null;
-  if (b.status === "new") return b.total;
-  if (b.status === "confirmed") return minsLeft >= CANCEL_CUTOFF_MINS ? b.service_price : 0;
-  return null;
-}
-
 export type CancelResult = { ok: true; booking: Booking } | { ok: false; quote: number | null };
 
 /**
@@ -247,7 +242,7 @@ export async function cancel(id: string, expected: number): Promise<CancelResult
   await sendSms(
     b.phone,
     `${SHOP.name}: your booking for ${fmtWhen(b.slot_at)} is cancelled. ` +
-      (quote === 0 ? "No refund is due as it was within 30 minutes."
+      (quote === 0 ? (isMobile(b) ? "No refund is due as your barber was already on the way." : "No refund is due as it was within 30 minutes.")
         : how === "released" ? `You haven't been charged. We've released the ${gbp(quote)} hold on your card.`
         : `${gbp(quote)} is on its way back to your card.`),
   );
@@ -256,7 +251,10 @@ export async function cancel(id: string, expected: number): Promise<CancelResult
 
 /** The cut is finished. Shop visits are counted on the customer, which later unlocks home visits (SPEC-v2 §6). */
 export async function complete(id: string) {
-  const b = await transition(id, ["confirmed"], { status: "done" });
+  const current = await getBooking(id);
+  if (!current) return null;
+  // Home and hotel visits only finish once the barber has arrived.
+  const b = await transition(id, [isMobile(current) ? "arrived" : "confirmed"], { status: "done" });
   if (!b) return null;
   if (b.location_type === "shop") {
     // The booking is already done, so a retry would skip this. Report it instead, and fix the count by hand.
@@ -270,15 +268,16 @@ export async function complete(id: string) {
 export type NoShowResult = { ok: true; booking: Booking } | { ok: false; from: Date | null };
 
 /**
- * The customer didn't turn up. Only once they're past the lateness grace, so a barber can't mark it early by mistake.
- * The full charge is kept. `from` comes back when it's too early, or null if the booking isn't confirmed.
+ * The customer didn't turn up. Shop: once they're past the lateness grace. Home and hotel: 15 min after the barber
+ * arrived. The full charge is kept. `from` comes back when it's too early, or null if it can't be marked now.
  */
 export async function noShow(id: string, now = Date.now()): Promise<NoShowResult> {
-  const { data } = await db().from("bookings").select("slot_at").eq("id", id).maybeSingle();
-  if (!data) return { ok: false, from: null };
-  const from = noShowFrom(new Date(data.slot_at));
+  const current = await getBooking(id);
+  if (!current) return { ok: false, from: null };
+  const from = noShowFrom(current);
+  if (!from) return { ok: false, from: null };
   if (now < from.getTime()) return { ok: false, from };
-  const b = await transition(id, ["confirmed"], { status: "no_show" });
+  const b = await transition(id, [isMobile(current) ? "arrived" : "confirmed"], { status: "no_show" });
   if (!b) return { ok: false, from: null };
   try {
     await updateBookingAlert(b);
@@ -287,7 +286,9 @@ export async function noShow(id: string, now = Date.now()): Promise<NoShowResult
   }
   await sendSms(
     b.phone,
-    `${SHOP.name}: we waited for you at ${fmtTime(b.slot_at)} but you didn't arrive, so your booking is marked as a no-show. ` +
+    (isMobile(b)
+      ? `${SHOP.name}: ${b.barber} arrived at ${fmtTime(b.arrived_at!)} and waited ${NO_SHOW_AFTER_MINS} minutes but couldn't reach you, so your booking is marked as a no-show. `
+      : `${SHOP.name}: we waited for you at ${fmtTime(b.slot_at)} but you didn't arrive, so your booking is marked as a no-show. `) +
       `As the booking rules say, the ${gbp(b.total)} isn't refunded. Reply if something went wrong.`,
   );
   return { ok: true, booking: b };
@@ -304,6 +305,7 @@ export async function nudgeUnfinished(now = Date.now()) {
     .from("bookings")
     .select("*")
     .eq("status", "confirmed")
+    .eq("location_type", "shop") // visits have their own check-out (safetyCheck)
     .is("done_nudged_at", null)
     .lt("block_end", overdue);
   if (error) throw new Error(`Unfinished bookings query failed: ${error.message}`);
@@ -401,10 +403,91 @@ export async function remindCustomers(now = Date.now()) {
     if (!claimed) continue;
     await sendSms(
       b.phone,
-      `${SHOP.name}: see you at ${fmtTime(b.slot_at)}. ${b.barber} is opening up at ${SHOP.address}. ` +
-        `Directions: ${mapsUrl()} Running late? Reply to let us know. After ${LATE_GRACE_MINS} min the barber may leave.`,
+      isMobile(b)
+        ? `${SHOP.name}: ${b.barber} is coming to ${b.address} for ${fmtTime(b.slot_at)}. We'll text when they set off.`
+        : `${SHOP.name}: see you at ${fmtTime(b.slot_at)}. ${b.barber} is opening up at ${SHOP.address}. ` +
+          `Directions: ${mapsUrl()} Running late? Reply to let us know. After ${LATE_GRACE_MINS} min the barber may leave.`,
     );
     sent++;
   }
   return sent;
+}
+
+/** Home and hotel: the barber has set off. The customer gets an arrival time based on the drive from the shop. */
+export async function onTheWay(id: string, now = Date.now()) {
+  const current = await getBooking(id);
+  if (!current || !isMobile(current)) return null;
+  const eta = new Date(now + (current.drive_minutes ?? 0) * 60e3);
+  const b = await transition(id, ["confirmed"], {
+    status: "on_the_way", on_the_way_at: new Date(now).toISOString(), eta_at: eta.toISOString(),
+  });
+  if (!b) return null;
+  await updateBookingAlert(b);
+  await sendSms(b.phone, `${SHOP.name}: ${b.barber} is on the way to ${b.address}, arriving around ${fmtTime(eta)}.`);
+  return b;
+}
+
+/** Home and hotel: the barber is at the door. Starts the no-show clock (§10.3). */
+export async function arrived(id: string, now = Date.now()) {
+  const b = await transition(id, ["on_the_way"], { status: "arrived", arrived_at: new Date(now).toISOString() });
+  if (!b) return null;
+  await updateBookingAlert(b);
+  await sendSms(b.phone, `${SHOP.name}: ${b.barber} is here at ${b.address}. They'll call you if they can't get in.`);
+  return b;
+}
+
+/** Home and hotel: the barber tapped "Left safely" after the visit (§9.1). */
+export async function leftSafely(id: string, now = Date.now()) {
+  const { data, error } = await db()
+    .from("bookings")
+    .update({ left_at: new Date(now).toISOString() })
+    .eq("id", id)
+    .in("status", ["done", "no_show"])
+    .neq("location_type", "shop")
+    .is("left_at", null)
+    .select()
+    .maybeSingle();
+  if (error) throw new Error(`Booking ${id} update failed: ${error.message}`);
+  const b = data as Booking | null;
+  if (b) await updateBookingAlert(b);
+  return b;
+}
+
+/**
+ * Runs every couple of minutes. Alerts Karo once if a barber on a home or hotel visit hasn't tapped "Left safely"
+ * 30 min after the cut should have finished, with where they are and the customer's number.
+ */
+export async function safetyCheck(now = Date.now()) {
+  const { data, error } = await db()
+    .from("bookings")
+    .select("*")
+    .neq("location_type", "shop")
+    .in("status", ["arrived", "done", "no_show"])
+    .not("arrived_at", "is", null)
+    .is("left_at", null)
+    .is("safety_alerted_at", null);
+  if (error) throw new Error(`Safety check query failed: ${error.message}`);
+
+  let alerted = 0;
+  for (const b of (data || []) as Booking[]) {
+    const due = safetyCheckAt(b);
+    if (!due || now < due.getTime()) continue;
+    // Claim it first so two overlapping runs can't both alert.
+    const { data: claimed } = await db()
+      .from("bookings")
+      .update({ safety_alerted_at: new Date(now).toISOString() })
+      .eq("id", b.id)
+      .is("safety_alerted_at", null)
+      .select("id")
+      .maybeSingle();
+    if (!claimed) continue;
+    try {
+      await sendSafetyAlert(b);
+      alerted++;
+    } catch (e) {
+      await db().from("bookings").update({ safety_alerted_at: null }).eq("id", b.id); // try again next run
+      await reportError(`Safety alert failed for booking ${b.id}`, e);
+    }
+  }
+  return alerted;
 }

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { chaseUnclaimed, nudgeUnfinished, openExpiredWindows, remindCustomers } from "@/lib/bookings";
+import { chaseUnclaimed, nudgeUnfinished, openExpiredWindows, remindCustomers, safetyCheck } from "@/lib/bookings";
 import { reportError } from "@/lib/telegram";
 
 export const dynamic = "force-dynamic";
@@ -29,6 +29,12 @@ export async function GET(req: Request) {
   } catch (e) {
     await reportError("Reminder texts failed", e);
     result.remindersSent = "failed";
+  }
+  try {
+    result.safetyAlerts = await safetyCheck();
+  } catch (e) {
+    await reportError("Safety check failed", e);
+    result.safetyAlerts = "failed";
   }
   try {
     result.doneNudges = await nudgeUnfinished();

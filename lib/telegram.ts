@@ -1,9 +1,9 @@
 import "server-only";
 import { barbers, gbp, SHOP } from "./config";
-import { noShowFrom } from "./dispatch";
 import { onlyPreferredButton } from "./preferred";
 import { fmtDay, fmtTime } from "./slots";
 import type { Booking } from "./supabase";
+import { isMobile, nextActions, noShowFrom, type VisitAction } from "./visit";
 
 const api = (method: string, body: unknown) =>
   fetch(`https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/${method}`, {
@@ -12,13 +12,26 @@ const api = (method: string, body: unknown) =>
     body: JSON.stringify(body),
   }).then((r) => r.json());
 
+/** Where the cut happens: open the shop, or drive to the customer (leaving the shop in time to arrive at the slot). */
+function whereLines(b: Booking) {
+  if (!isMobile(b)) return [`Open ${SHOP.name}`];
+  const leave = new Date(new Date(b.slot_at).getTime() - (b.drive_minutes ?? 0) * 60e3);
+  const maps = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${b.address}, ${b.postcode}`)}`;
+  return [
+    `🏠 ${b.address}, ${b.postcode}`,
+    `🚗 ${b.drive_minutes} min / ${b.drive_miles} mi from the shop · leave by ${fmtTime(leave)}`,
+    maps,
+  ];
+}
+
 export function bookingText(b: Booking) {
   const lines = [
-    `💈 NEW LATE BOOKING · ${fmtTime(b.slot_at)} (${fmtDay(b.slot_at)})`,
+    `${isMobile(b) ? "🏠 HOME VISIT" : "💈 NEW LATE BOOKING"} · ${fmtTime(b.slot_at)} (${fmtDay(b.slot_at)})`,
     ...(b.preferred_barber ? [`🙋 Requested: ${b.preferred_barber}${b.allow_fallback ? "" : " only"}`] : []),
     `${b.name} · ${b.phone}`,
-    `${b.service_name} · ${b.status === "new" ? `${gbp(b.total)} held, charged when you accept` : gbp(b.total)}`,
-    `Open ${SHOP.name}`,
+    `${b.service_name} · ${b.status === "new" ? `${gbp(b.total)} held, charged when you accept` : gbp(b.total)}` +
+      (b.distance_step ? ` (incl. ${gbp(b.distance_step)} travel)` : ""),
+    ...whereLines(b),
   ];
   if (b.status === "new" && b.preferred_barber && b.exclusive_until && b.allow_fallback) {
     lines.push(`🔒 ${b.preferred_barber} has until ${fmtTime(b.exclusive_until)}, then it opens to everyone`);
@@ -29,11 +42,16 @@ export function bookingText(b: Booking) {
   }
   const instead = b.preferred_barber && b.barber && b.barber !== b.preferred_barber ? ` (instead of ${b.preferred_barber})` : "";
   if (b.status === "confirmed") lines.push(`\n✅ ${b.barber} is taking this${instead} · card charged`);
+  if (b.status === "on_the_way") lines.push(`\n🚗 ${b.barber} is on the way · arriving ${fmtTime(b.eta_at!)}`);
+  if (b.status === "arrived") lines.push(`\n📍 ${b.barber} arrived ${fmtTime(b.arrived_at!)}`);
   if (b.status === "refunded") {
     lines.push(b.preferred_barber && !b.allow_fallback ? `\n↩️ ${b.preferred_barber} couldn't, hold released` : `\n↩️ Nobody free, hold released`);
   }
   if (b.status === "done") lines.push(`\n✔️ Done (${b.barber})`);
   if (b.status === "no_show") lines.push(`\n👻 No-show (${b.barber}) · charge kept`);
+  if (isMobile(b) && (b.status === "done" || b.status === "no_show")) {
+    lines.push(b.left_at ? `🏁 Left safely ${fmtTime(b.left_at)}` : `Tap Left safely once you're out`);
+  }
   if (b.status === "cancelled") lines.push(`\n🚫 Cancelled by customer · refunded ${gbp(b.refund_amount ?? 0)}`);
   return lines.join("\n");
 }
@@ -58,20 +76,22 @@ function newKeyboard(b: Booking) {
   };
 }
 
-const keyboard = (b: Booking) =>
-  b.status === "new"
-    ? newKeyboard(b)
-    : b.status === "confirmed"
-      ? {
-          inline_keyboard: [
-            [
-              { text: "✔️ Done", callback_data: `done:${b.id}` },
-              // Always shown; the server refuses it until the customer is past the lateness grace.
-              { text: `👻 No-show (from ${fmtTime(noShowFrom(new Date(b.slot_at)))})`, callback_data: `noshow:${b.id}` },
-            ],
-          ],
-        }
-      : { inline_keyboard: [] };
+/** After Accept: Done / No-show for the shop; On my way → Arrived → Done / No-show → Left safely for visits (§9). */
+function afterKeyboard(b: Booking) {
+  const button = (a: VisitAction) => {
+    if (a === "on_the_way") return { text: "🚗 On my way", callback_data: `way:${b.id}` };
+    if (a === "arrived") return { text: "📍 Arrived", callback_data: `arrived:${b.id}` };
+    if (a === "done") return { text: "✔️ Done", callback_data: `done:${b.id}` };
+    if (a === "left") return { text: "🏁 Left safely", callback_data: `left:${b.id}` };
+    // Always shown; the server refuses it until it's allowed.
+    const from = noShowFrom(b);
+    return { text: `👻 No-show${from ? ` (from ${fmtTime(from)})` : ""}`, callback_data: `noshow:${b.id}` };
+  };
+  const actions = nextActions(b);
+  return { inline_keyboard: actions.length ? [actions.map(button)] : [] };
+}
+
+const keyboard = (b: Booking) => (b.status === "new" ? newKeyboard(b) : afterKeyboard(b));
 
 /** Sends the alert to the barbers' group. Returns the message id. */
 export async function sendBookingAlert(b: Booking): Promise<number | null> {
@@ -127,6 +147,20 @@ export async function sendOpenedNotice(b: Booking, why: "cant" | "timeout") {
     text: `🔓 ${b.preferred_barber} ${why === "cant" ? "can't take" : "didn't take"} the ${fmtTime(b.slot_at)} (${fmtDay(b.slot_at)}). It's open to everyone now: tap your name above.`,
   });
   if (!res?.ok) throw new Error(`Telegram open notice failed for booking ${b.id}: ${res?.description}`);
+}
+
+/** Tells Karo privately that a barber on a visit hasn't checked out, with everything needed to follow up (§9.1). */
+export async function sendSafetyAlert(b: Booking) {
+  const chat = process.env.TELEGRAM_ALERT_CHAT_ID || process.env.TELEGRAM_CHAT_ID;
+  if (!process.env.TELEGRAM_BOT_TOKEN || !chat) return;
+  const res = await api("sendMessage", {
+    chat_id: chat,
+    text:
+      `🚨 ${b.barber} hasn't tapped Left safely\n` +
+      `Arrived ${fmtTime(b.arrived_at!)} (${fmtDay(b.arrived_at!)}) for a ${b.service_name}\n` +
+      `${b.address}, ${b.postcode}\nCustomer: ${b.name} · ${b.phone}\nCall ${b.barber} to check they're OK.`,
+  });
+  if (!res?.ok) throw new Error(`Telegram safety alert failed for booking ${b.id}: ${res?.description}`);
 }
 
 /** Asks the assigned barber to close off a cut that should have finished, replying to the alert so the buttons are one tap away. */

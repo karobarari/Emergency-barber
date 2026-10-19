@@ -49,6 +49,19 @@ export type Booking = {
   reminded_at: string | null;
   slot_reminded_at: string | null;
   done_nudged_at: string | null; // when the barber was asked to tap Done
+  // Home and hotel visits (supabase/2026-10-19-home-visits.sql). Null for shop bookings.
+  address: string | null;
+  postcode: string | null;
+  lat: number | null;
+  lng: number | null;
+  drive_minutes: number | null; // from the shop
+  drive_miles: number | null;
+  distance_step: number | null; // pence, travel charge
+  eta_at: string | null; // when the barber should arrive
+  on_the_way_at: string | null;
+  arrived_at: string | null;
+  left_at: string | null; // barber tapped "Left safely"
+  safety_alerted_at: string | null;
 };
 
 let client: SupabaseClient | null = null;

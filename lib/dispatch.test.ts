@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { doneNudgeAt, noShowFrom, releaseAt, remindAt } from "./dispatch";
+import { doneNudgeAt, releaseAt, remindAt } from "./dispatch";
 
 const paid = new Date("2026-10-19T12:00:00Z");
 const later = (mins: number) => new Date(paid.getTime() + mins * 60e3);
@@ -30,12 +30,6 @@ describe("dispatch timing", () => {
 });
 
 describe("after the cut", () => {
-  const slot = new Date("2026-10-19T20:00:00Z");
-
-  it("no-show can be marked 15 min after the slot", () => {
-    expect(noShowFrom(slot)).toEqual(new Date("2026-10-19T20:15:00Z"));
-  });
-
   it("nudges for Done 30 min after the cut should have finished", () => {
     expect(doneNudgeAt(new Date("2026-10-19T21:15:00Z"))).toEqual(new Date("2026-10-19T21:45:00Z"));
   });

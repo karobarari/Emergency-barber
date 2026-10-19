@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { blockFor } from "@/lib/capacity";
 import { barbers, CANCEL_CUTOFF_MINS, CAPACITY, gbp, LATE_GRACE_MINS, OPERATOR, SERVICES, SHOP } from "@/lib/config";
+import { homeArea } from "@/lib/homeArea";
 import { quote } from "@/lib/pricing";
 import { fmtDay, fmtTime } from "@/lib/slots";
 import { ukMobile } from "@/lib/sms";
@@ -9,9 +10,9 @@ import { db } from "@/lib/supabase";
 import { reportError } from "@/lib/telegram";
 import { freeSlots } from "@/lib/taken";
 
-const bad = (error: string) => {
+const bad = (error: string, status = 400) => {
   console.warn("Checkout rejected:", error);
-  return NextResponse.json({ error }, { status: 400 });
+  return NextResponse.json({ error }, { status });
 };
 
 export async function POST(req: Request) {
@@ -20,23 +21,39 @@ export async function POST(req: Request) {
   if (!service) return bad("Choose a service.");
   const name = String(body.name || "").trim().slice(0, 80);
   if (!name) return bad("Add your name.");
-  const phone = ukMobile(String(body.phone || ""));
-  if (!phone) return bad("Enter a UK mobile number, like 07700 900123.");
   if (body.agreed !== true) return bad("Tick the box to agree to the cancellation and lateness rules.");
   // null means no preference, and then any barber is fine.
   const preferred = body.preferredBarber == null ? null : barbers().find((n) => n === body.preferredBarber);
   if (preferred === undefined) return bad("Pick a barber from the list, or no preference.");
   const allowFallback = preferred ? body.allowFallback !== false : true;
 
+  const home = body.locationType === "home";
+  let phone: string | null;
+  let visit: { address: string; postcode: string; lat: number; lng: number; drive_minutes: number; drive_miles: number } | null = null;
+  if (home) {
+    // Never from the browser: the phone is the one verified by text code, and the drive is worked out here.
+    const area = await homeArea(String(body.postcode || ""));
+    if (!area.ok) return bad(area.error, area.status);
+    const address = String(body.address || "").trim().slice(0, 120);
+    if (!address) return bad("Add the first line of your address.");
+    phone = area.phone;
+    visit = { address, postcode: area.postcode, lat: area.lat, lng: area.lng, drive_minutes: area.driveMinutes, drive_miles: area.driveMiles };
+  } else {
+    phone = ukMobile(String(body.phone || ""));
+    if (!phone) return bad("Enter a UK mobile number, like 07700 900123.");
+  }
+  const locationType = home ? "home" : "shop";
+  const driveMinutes = visit?.drive_minutes;
+
   const slot = new Date(body.slot);
   const now = new Date();
-  const free = await freeSlots(now, { serviceId: service.id });
+  const free = await freeSlots(now, { serviceId: service.id, locationType, driveMinutes });
   if (!free.some((s) => s.getTime() === slot.getTime())) {
     return bad("That time has just gone. Pick another slot.");
   }
 
   // Priced here, never from the browser, and locked into the card hold.
-  const q = quote({ serviceId: service.id, locationType: "shop", slotAt: slot, now });
+  const q = quote({ serviceId: service.id, locationType, slotAt: slot, now, driveMinutes, driveMiles: visit?.drive_miles });
   // The booking fee goes up as the slot gets closer. If it has since the customer saw it, show them the new total first.
   if (body.expectedTotal !== q.total) {
     return NextResponse.json(
@@ -48,17 +65,19 @@ export async function POST(req: Request) {
     );
   }
   // Checks for room and inserts in one locked step, so two customers can't both take the last place.
-  const block = blockFor({ locationType: "shop", slotAt: slot, serviceId: service.id });
+  const block = blockFor({ locationType, slotAt: slot, serviceId: service.id, driveMinutes });
   const { data: booking, error } = await db().rpc("reserve_booking", {
     p_booking: {
       name, phone,
       service_id: service.id, service_name: service.name,
       slot_at: slot.toISOString(),
       location_type: block.locationType, block_start: block.start.toISOString(), block_end: block.end.toISOString(),
-      service_price: q.servicePrice, advance_fee: q.advanceFee, price_tier: q.tier, total: q.total,
+      service_price: q.servicePrice, advance_fee: q.advanceFee, distance_step: q.distanceStep, price_tier: q.tier, total: q.total,
       status: "pending",
       preferred_barber: preferred, allow_fallback: allowFallback,
       terms_accepted_at: new Date().toISOString(),
+      // The barber arrives for the slot; Phase 5 refines this from where they actually are.
+      ...(visit ? { ...visit, eta_at: slot.toISOString() } : {}),
     },
     p_barber_count: CAPACITY.barberCount,
     p_shop_chairs: CAPACITY.shopChairs,
@@ -71,6 +90,10 @@ export async function POST(req: Request) {
   }
 
   const site = process.env.SITE_URL || new URL(req.url).origin;
+  const where = visit ? `home visit to ${visit.address}, ${visit.postcode}` : `${SHOP.name}, ${SHOP.address}`;
+  const rules = visit
+    ? `Cancel free until a barber confirms. After that the booking fee and travel are kept, nothing is refunded once your barber is on the way, and it's a no-show if you're not there ${LATE_GRACE_MINS} min after they arrive.`
+    : `Cancel free until a barber confirms. After that the ${gbp(q.advanceFee)} booking fee is kept, nothing is refunded within ${CANCEL_CUTOFF_MINS} min, and the barber may leave if you are over ${LATE_GRACE_MINS} min late.`;
   let session: Awaited<ReturnType<ReturnType<typeof stripe>["checkout"]["sessions"]["create"]>>;
   try {
     session = await stripe().checkout.sessions.create({
@@ -82,6 +105,9 @@ export async function POST(req: Request) {
     line_items: [
       { quantity: 1, price_data: { currency: "gbp", unit_amount: q.servicePrice, product_data: { name: `${service.name} at ${fmtTime(slot)} on ${fmtDay(slot)}` } } },
       { quantity: 1, price_data: { currency: "gbp", unit_amount: q.advanceFee, product_data: { name: `Booking fee (${q.tierLabel})` } } },
+      ...(q.distanceStep
+        ? [{ quantity: 1, price_data: { currency: "gbp", unit_amount: q.distanceStep, product_data: { name: `Travel (${visit!.drive_minutes} min from the shop)` } } }]
+        : []),
     ],
     metadata: { booking_id: booking.id },
     payment_intent_data: {
@@ -90,12 +116,12 @@ export async function POST(req: Request) {
       // Stripe can't make a post-payment invoice for a hold, so the receipt emailed on capture is the confirmation
       // and carries the details from this description.
       capture_method: "manual",
-      description: `${service.name} at ${fmtTime(slot)} on ${fmtDay(slot)}, ${SHOP.name}, ${SHOP.address}. Track or cancel: ${site}/booking/${booking.id}. ${OPERATOR.trading} is run by ${OPERATOR.name}, sole trader, ${OPERATOR.email}.`,
+      description: `${service.name} at ${fmtTime(slot)} on ${fmtDay(slot)}, ${where}. Track or cancel: ${site}/booking/${booking.id}. ${OPERATOR.trading} is run by ${OPERATOR.name}, sole trader, ${OPERATOR.email}.`,
     },
     expires_at: Math.floor(Date.now() / 1000) + 30 * 60, // Stripe's minimum; frees the slot if abandoned
     custom_text: {
       submit: {
-        message: `We hold this on your card and only charge it when a barber accepts. If nobody can, the hold is released. Cancel free until a barber confirms. After that the ${gbp(q.advanceFee)} booking fee is kept, nothing is refunded within ${CANCEL_CUTOFF_MINS} min, and the barber may leave if you are over ${LATE_GRACE_MINS} min late.`,
+        message: `We hold this on your card and only charge it when a barber accepts. If nobody can, the hold is released. ${rules}`,
       },
     },
     success_url: `${site}/booking/${booking.id}`,

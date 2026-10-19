@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { DISPATCH, gbp, OPERATOR, PRICING, RULES, SHOP, SLOTS } from "@/lib/config";
+import { DISPATCH, gbp, HOME_RULES, OPERATOR, PRICING, RULES, SHOP, SLOTS } from "@/lib/config";
 
 export const metadata: Metadata = { title: `Terms · ${OPERATOR.trading}` };
 
@@ -24,6 +24,19 @@ export default function Terms() {
         The price you see when you pay is the price you pay.
       </p>
 
+      <div className="h3">Home visits</div>
+      <p>
+        Once you&apos;ve had a cut at {SHOP.name}, a barber can come to your home or office instead, within{" "}
+        {PRICING.maxDriveMiles} miles of the shop. We check your mobile number with a text code first. Home visits add a
+        travel charge based on the drive from the shop:{" "}
+        {PRICING.distanceSteps.map((s, i) => {
+          const from = i ? PRICING.distanceSteps[i - 1].maxDriveMinutes : 0;
+          const range = s.maxDriveMinutes === Infinity ? `over ${from} min` : i ? `${from}–${s.maxDriveMinutes} min` : `up to ${s.maxDriveMinutes} min`;
+          return `${range} ${s.step ? gbp(s.step) : "free"}`;
+        }).join(", ")}
+        . Please make sure the barber can get in and has somewhere to work. We text you when they set off and when they arrive.
+      </p>
+
       <div className="h3">Paying</div>
       <p>
         When you send a request we place a hold for the full price on your card. We only take the money when a barber
@@ -40,7 +53,10 @@ export default function Terms() {
       </p>
 
       <div className="h3">Cancelling and lateness</div>
+      <p>At the shop:</p>
       <ul className="rules">{RULES.map((r) => <li key={r}>{r}</li>)}</ul>
+      <p>Home visits:</p>
+      <ul className="rules">{HOME_RULES.map((r) => <li key={r}>{r}</li>)}</ul>
       <p>
         Cancel from the link in your booking text or on your booking page. See the <a href="/refunds">refund policy</a> for
         how refunds are paid.

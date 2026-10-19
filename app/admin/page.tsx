@@ -1,11 +1,11 @@
 import { revalidatePath } from "next/cache";
-import { assign, complete, noShow, preferredCant, refund } from "@/lib/bookings";
+import { arrived, assign, complete, leftSafely, noShow, onTheWay, preferredCant, refund } from "@/lib/bookings";
 import { barbers, gbp } from "@/lib/config";
-import { noShowFrom } from "@/lib/dispatch";
 import { isExclusive, mayAccept } from "@/lib/preferred";
 import { fmtDay, fmtTime } from "@/lib/slots";
 import { db, type Booking } from "@/lib/supabase";
 import { reportError } from "@/lib/telegram";
+import { isMobile, nextActions, noShowFrom, type VisitAction } from "@/lib/visit";
 import AutoRefresh from "@/app/components/AutoRefresh";
 
 export const dynamic = "force-dynamic";
@@ -31,13 +31,20 @@ async function act(form: FormData) {
   if (action === "refund") await refund(id);
   if (action === "done") await complete(id);
   if (action === "noshow") await noShow(id);
+  if (action === "on_the_way") await onTheWay(id);
+  if (action === "arrived") await arrived(id);
+  if (action === "left") await leftSafely(id);
   revalidatePath("/admin");
 }
 
 const LABEL: Record<string, string> = {
-  new: "Needs barber", confirmed: "Confirmed", done: "Done", no_show: "No-show", refunded: "Nobody free", cancelled: "Cancelled",
+  new: "Needs barber", confirmed: "Confirmed", on_the_way: "On the way", arrived: "Arrived", done: "Done", no_show: "No-show", refunded: "Nobody free", cancelled: "Cancelled",
 };
 const FINISHED = ["done", "no_show", "refunded", "cancelled"];
+const UNDERWAY = ["confirmed", "on_the_way", "arrived"];
+const ACTION_LABEL: Record<Exclude<VisitAction, "noshow">, string> = {
+  on_the_way: "Barber on the way", arrived: "Barber arrived", done: "Mark cut as done", left: "Barber left safely",
+};
 
 export default async function Admin() {
   const since = new Date(Date.now() - 18 * 3600e3).toISOString();
@@ -45,11 +52,12 @@ export default async function Admin() {
     .from("bookings")
     .select("*")
     .gte("slot_at", since)
-    .in("status", ["new", "confirmed", ...FINISHED])
+    .in("status", ["new", ...UNDERWAY, ...FINISHED])
     .order("slot_at");
   const rows = (data || []) as Booking[];
-  const live = rows.filter((b) => b.status === "new" || b.status === "confirmed");
-  const past = rows.filter((b) => FINISHED.includes(b.status));
+  // A visit isn't finished until the barber has checked out.
+  const live = rows.filter((b) => b.status === "new" || UNDERWAY.includes(b.status) || (isMobile(b) && nextActions(b).includes("left")));
+  const past = rows.filter((b) => FINISHED.includes(b.status) && !live.includes(b));
   const now = Date.now();
   // Unclaimed bookings are only held, not charged. Cancellations keep whatever wasn't refunded (the booking fee, or everything inside 30 min).
   // No-shows keep the full charge.
@@ -63,6 +71,9 @@ export default async function Admin() {
       </div>
       <div><b>{b.name}</b> · {b.service_name} · <span className="price">{gbp(b.total)}</span></div>
       <div className="cmeta">{b.phone}{b.barber ? ` · ${b.barber}` : ""}{b.status === "cancelled" ? ` · refunded ${gbp(b.refund_amount ?? 0)}` : ""}</div>
+      {isMobile(b) && (
+        <div className="cmeta">🏠 {b.address}, {b.postcode} · {b.drive_minutes} min drive{b.distance_step ? ` · ${gbp(b.distance_step)} travel` : ""}</div>
+      )}
       {b.preferred_barber && (
         <div className="cmeta">
           Requested {b.preferred_barber}{b.allow_fallback ? "" : " only"}
@@ -95,24 +106,27 @@ export default async function Admin() {
           )}
         </>
       )}
-      {b.status === "confirmed" && (
-        <>
-          <form action={act}>
-            <input type="hidden" name="id" value={b.id} />
-            <input type="hidden" name="action" value="done" />
-            <button className="btn ghost">Mark cut as done</button>
-          </form>
-          {now >= noShowFrom(new Date(b.slot_at)).getTime() ? (
-            <form action={act}>
+      {nextActions(b).map((a) => {
+        if (a !== "noshow") {
+          return (
+            <form action={act} key={a}>
               <input type="hidden" name="id" value={b.id} />
-              <input type="hidden" name="action" value="noshow" />
-              <button className="small">Customer didn&apos;t come? Mark no-show (charge kept)</button>
+              <input type="hidden" name="action" value={a} />
+              <button className="btn ghost">{ACTION_LABEL[a]}</button>
             </form>
-          ) : (
-            <span className="muted">No-show can be marked from {fmtTime(noShowFrom(new Date(b.slot_at)))}</span>
-          )}
-        </>
-      )}
+          );
+        }
+        const from = noShowFrom(b);
+        return from && now >= from.getTime() ? (
+          <form action={act} key={a}>
+            <input type="hidden" name="id" value={b.id} />
+            <input type="hidden" name="action" value="noshow" />
+            <button className="small">Customer didn&apos;t show? Mark no-show (charge kept)</button>
+          </form>
+        ) : (
+          <span className="muted" key={a}>No-show can be marked from {from ? fmtTime(from) : "15 min after the barber arrives"}</span>
+        );
+      })}
     </div>
   );
 
@@ -123,7 +137,7 @@ export default async function Admin() {
       <p className="note"><a href="/admin/customers">Customers</a></p>
       <div className="kpis">
         <div className="kpi"><b>{rows.filter((b) => b.status === "new").length}</b><span>Need a barber</span></div>
-        <div className="kpi"><b>{rows.filter((b) => b.status === "confirmed").length}</b><span>Confirmed</span></div>
+        <div className="kpi"><b>{rows.filter((b) => UNDERWAY.includes(b.status)).length}</b><span>Confirmed</span></div>
         <div className="kpi"><b>{gbp(taken)}</b><span>Taken</span></div>
       </div>
       <div className="h3">Live jobs</div>

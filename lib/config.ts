@@ -2,7 +2,17 @@ export const SHOP = {
   name: "FadeMasters Hale",
   address: "313 Hale Rd, Hale Barns, Altrincham WA15 8SS",
   timeZone: "Europe/London",
+  // Where drive times for home visits are measured from (postcodes.io for WA15 8SS).
+  lat: 53.369415,
+  lng: -2.31366,
 };
+
+/**
+ * Home visits need the phone check (Twilio Verify) and drive times (OpenRouteService). Until all three are set,
+ * "At my place" shows as coming soon.
+ */
+export const homeVisitsEnabled = () =>
+  !!(process.env.TWILIO_VERIFY_SERVICE_SID && process.env.VERIFY_TOKEN_SECRET && process.env.ROUTING_API_KEY);
 
 /** Who runs the service, for the terms and privacy notice. */
 export const OPERATOR = {
@@ -103,6 +113,19 @@ export const RULES = [
   `Within ${CANCEL_CUTOFF_MINS} min of your slot, nothing is refunded.`,
   `Running late? Up to ${LATE_GRACE_MINS} min is fine. After that the barber may leave and nothing is refunded.`,
 ];
+
+/** The rules for home visits (SPEC-v2 §10.2, §10.3). */
+export const HOME_RULES = [
+  "You're only charged once a barber accepts. Cancel free until then.",
+  "Once confirmed, cancel before your barber sets off and we refund the service; the booking fee and travel are kept.",
+  "Once your barber is on the way, nothing is refunded.",
+  `When your barber arrives we text you and call twice. If you're not there ${NO_SHOW_AFTER_MINS} min after they arrive, it's a no-show and nothing is refunded.`,
+];
+
+export const rulesFor = (locationType: string) => (locationType === "shop" ? RULES : HOME_RULES);
+
+/** If a barber on a home visit hasn't tapped "Left safely" this long after the cut should have finished, Karo is alerted. */
+export const SAFETY_CHECK_MINS = 30;
 
 export const mapsUrl = () =>
   "https://www.google.com/maps/search/?api=1&query=" +

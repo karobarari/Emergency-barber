@@ -3,22 +3,37 @@ import { useEffect, useState } from "react";
 
 type Service = { id: string; name: string; mins: number; price: number };
 type Fee = { minHoursAhead: number; fee: number };
-type Slot = { at: string; fee: number; tierLabel: string };
+type Slot = { at: string; fee: number; tierLabel: string; travel?: number };
 type Night = { key: string; label: string; slots: Slot[] };
+type Area = { postcode: string; driveMinutes: number; driveMiles: number; distanceStep: number };
 type Props = {
-  services: Service[]; fees: Fee[]; advanceDays: number; shop: string; address: string; maps: string; rules: string[]; barbers: string[];
+  services: Service[]; fees: Fee[]; advanceDays: number; shop: string; address: string; maps: string;
+  rules: string[]; homeRules: string[]; barbers: string[]; homeEnabled: boolean;
 };
 
 const gbp = (p: number) => `£${(p / 100).toFixed(p % 100 ? 2 : 0)}`;
 const fmt = (iso: string) =>
   new Date(iso).toLocaleTimeString("en-GB", { timeZone: "Europe/London", hour: "2-digit", minute: "2-digit" });
 
-function Steps({ n }: { n: number }) {
-  return <div className="steps">{[1, 2, 3, 4, 5].map((i) => <span key={i} className={i <= n ? "on" : ""} />)}</div>;
+/** Shop bookings skip the phone check and address. Home visits check the phone first (SPEC-v2 §6.2). */
+const FLOWS = {
+  shop: ["where", "service", "time", "barber", "details", "review"],
+  home: ["where", "phone", "address", "service", "time", "barber", "details", "review"],
+} as const;
+type Step = (typeof FLOWS)["home"][number];
+
+function Steps({ n, of }: { n: number; of: number }) {
+  return <div className="steps">{Array.from({ length: of }, (_, i) => <span key={i} className={i <= n ? "on" : ""} />)}</div>;
 }
 
-export default function BookingFlow({ services, fees, advanceDays, shop, address, maps, rules, barbers }: Props) {
-  const [step, setStep] = useState(1);
+const post = (url: string, body: unknown) =>
+  fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })
+    .then(async (r) => ({ ok: r.ok, data: await r.json().catch(() => ({})) }))
+    .catch(() => ({ ok: false, data: { error: "Something went wrong. Check your connection and try again." } }));
+
+export default function BookingFlow({ services, fees, advanceDays, shop, address, maps, rules, homeRules, barbers, homeEnabled }: Props) {
+  const [mode, setMode] = useState<"shop" | "home">("shop");
+  const [at, setAt] = useState(0);
   const [serviceId, setServiceId] = useState<string | null>(null);
   const [nights, setNights] = useState<Night[] | null>(null);
   const [nightKey, setNightKey] = useState<string | null>(null);
@@ -30,17 +45,38 @@ export default function BookingFlow({ services, fees, advanceDays, shop, address
   const [agreed, setAgreed] = useState(false);
   const [preferred, setPreferred] = useState<string | null>(null); // null = no preference
   const [allowFallback, setAllowFallback] = useState(true);
+  // Home visits
+  const [codeSent, setCodeSent] = useState(false);
+  const [code, setCode] = useState("");
+  const [locked, setLocked] = useState(false); // verified, but home visits aren't unlocked for this number
+  const [street, setStreet] = useState("");
+  const [postcode, setPostcode] = useState("");
+  const [area, setArea] = useState<Area | null>(null);
+  const [outOfArea, setOutOfArea] = useState(false);
+
+  const flow = FLOWS[mode];
+  const step: Step = flow[at];
+  const go = (s: Step) => { setError(""); setAt(flow.indexOf(s as never)); };
+  const next = () => { setError(""); setAt((i) => i + 1); };
+  const back = () => { setError(""); setAt((i) => i - 1); };
+  const toShop = () => { setMode("shop"); setLocked(false); setOutOfArea(false); setError(""); setAt(1); };
+  const home = mode === "home";
+
   const svc = services.find((s) => s.id === serviceId);
-  const total = svc && slot ? svc.price + slot.fee : 0;
+  const travel = slot?.travel ?? 0;
+  const total = svc && slot ? svc.price + slot.fee + travel : 0;
   const cheapest = Math.min(...fees.map((f) => f.fee));
   const dearest = Math.max(...fees.map((f) => f.fee));
+  const shownRules = home ? homeRules : rules;
 
   const loadSlots = () => {
     setNights(null);
-    // Longer services need more free time after the slot, so the list depends on the service.
-    fetch(`/api/slots?service=${serviceId}`)
-      .then((r) => r.json())
-      .then((d) => {
+    // Longer services need more free time after the slot, and visits also block the drive, so the list depends on both.
+    const where = home && area ? `&type=home&postcode=${encodeURIComponent(area.postcode)}` : "";
+    fetch(`/api/slots?service=${serviceId}${where}`)
+      .then(async (r) => {
+        const d = await r.json();
+        if (!r.ok) setError(d.error || "Couldn't load free times.");
         const list: Night[] = d.nights || [];
         setNights(list);
         // Keep the picked slot only if it still has room for this service, with its latest fee.
@@ -50,7 +86,7 @@ export default function BookingFlow({ services, fees, advanceDays, shop, address
       })
       .catch(() => setNights([]));
   };
-  useEffect(() => { if (step === 2) loadSlots(); }, [step]);
+  useEffect(() => { if (step === "time") loadSlots(); }, [step]);
 
   const night = nights?.find((n) => n.key === nightKey);
   const nightLabel = (iso: string) => nights?.find((n) => n.slots.some((s) => s.at === iso))?.label ?? "";
@@ -63,35 +99,151 @@ export default function BookingFlow({ services, fees, advanceDays, shop, address
   // "Book for tomorrow", but "Book for Wed 21 Oct".
   const forNight = (label: string) => (/^To/.test(label) ? label.toLowerCase() : label);
 
+  async function sendCode() {
+    setBusy(true); setError("");
+    const r = await post("/api/verify/start", { phone });
+    setBusy(false);
+    if (!r.ok) return setError(r.data.error || "Couldn't send the code.");
+    setCodeSent(true);
+  }
+
+  async function checkCode() {
+    setBusy(true); setError("");
+    const r = await post("/api/verify/check", { phone, code });
+    setBusy(false);
+    if (!r.ok) return setError(r.data.error || "Couldn't check the code.");
+    if (!r.data.allowed) return setLocked(true);
+    if (r.data.name && !name) setName(r.data.name);
+    // Pre-select the barber from their last cut; they can still change it.
+    if (r.data.lastBarber && barbers.includes(r.data.lastBarber)) setPreferred(r.data.lastBarber);
+    next();
+  }
+
+  async function checkArea() {
+    setBusy(true); setError(""); setOutOfArea(false);
+    const r = await fetch(`/api/area?postcode=${encodeURIComponent(postcode)}`)
+      .then(async (res) => ({ ok: res.ok, data: await res.json().catch(() => ({})) }))
+      .catch(() => ({ ok: false, data: { error: "Something went wrong. Check your connection and try again." } }));
+    setBusy(false);
+    if (!r.ok) {
+      setArea(null);
+      setOutOfArea(!!r.data.outOfArea);
+      // The 30-minute phone check ran out: start that step again.
+      if (r.data.error?.includes("number needs checking")) { setCodeSent(false); setCode(""); go("phone"); }
+      return setError(r.data.error || "Couldn't check that postcode.");
+    }
+    setArea(r.data);
+    setPostcode(r.data.postcode);
+  }
+
   async function pay() {
     if (!slot) return;
     setBusy(true); setError("");
-    const res = await fetch("/api/checkout", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ serviceId, slot: slot.at, name, phone, agreed, expectedTotal: total, preferredBarber: preferred, allowFallback }),
-    }).catch(() => null);
-    const data = await res?.json().catch(() => null);
-    if (data?.url) { window.location.href = data.url; return; }
+    const r = await post("/api/checkout", {
+      serviceId, slot: slot.at, name, phone, agreed, expectedTotal: total, preferredBarber: preferred, allowFallback,
+      ...(home ? { locationType: "home", address: street, postcode: area?.postcode } : {}),
+    });
+    if (r.data?.url) { window.location.href = r.data.url; return; }
     setBusy(false);
-    setError(data?.error || "Something went wrong. Check your connection and try again.");
+    setError(r.data?.error || "Something went wrong. Check your connection and try again.");
     // The booking fee went up since the slot list loaded. Show the new price and let them decide.
-    if (data?.quote) setSlot({ ...slot, fee: data.quote.fee, tierLabel: data.quote.tierLabel });
-    else if (data?.error?.includes("slot")) { setSlot(null); setStep(2); }
+    if (r.data?.quote) setSlot({ ...slot, fee: r.data.quote.fee, tierLabel: r.data.quote.tierLabel });
+    else if (r.data?.error?.includes("slot")) { setSlot(null); go("time"); }
   }
 
-  if (step === 1) return (
+  const head = <Steps n={at} of={flow.length} />;
+
+  if (step === "where") return (
     <>
-      <Steps n={1} />
+      {head}
       <h2>Need a cut out of hours?</h2>
-      <p className="lead">A barber opens {shop} just for you, tonight or up to {advanceDays} days ahead. Send a request, pay only when a barber accepts, then walk straight into the chair.</p>
-      <div className="sum">
-        <div className="row"><span>Where</span><span>{address}<br /><a href={maps} target="_blank" rel="noopener">Get directions</a></span></div>
-        <div className="row"><span>When</span><span>19:00 to midnight, at least 1 hour&apos;s notice</span></div>
-        <div className="row"><span>Booking fee</span><span className="price">{gbp(cheapest)}–{gbp(dearest)}</span></div>
-      </div>
-      <label className="f">What do you need?</label>
+      <p className="lead">Tonight or up to {advanceDays} days ahead. Send a request, and pay only when a barber accepts.</p>
+      <label className="f">Where do you want your cut?</label>
       <div className="opts">
+        <button className="opt" aria-pressed={mode === "shop"} onClick={() => setMode("shop")}>
+          <span><b>At {shop}</b><small>A barber opens the shop just for you</small></span>
+        </button>
+        <button className="opt" aria-pressed={mode === "home"} disabled={!homeEnabled} onClick={() => setMode("home")}>
+          <span>
+            <b>At my place</b>
+            <small>{homeEnabled ? "Your home or office, for customers who've had a cut at the shop" : "Coming soon, for customers who've had a cut at the shop"}</small>
+          </span>
+        </button>
+      </div>
+      <button className="btn" onClick={next}>Continue</button>
+    </>
+  );
+
+  if (step === "phone") return (
+    <>
+      {head}
+      <h2>{locked ? "Home visits aren't unlocked yet" : "Check your number"}</h2>
+      {locked ? (
+        <>
+          <p className="lead">Home visits unlock after your first cut at {shop}. Book one at the shop, and next time we can come to you.</p>
+          <button className="btn" onClick={toShop}>Book at the shop</button>
+        </>
+      ) : (
+        <>
+          <p className="lead">Home visits are for customers who&apos;ve had a cut with us. We&apos;ll text a code to check it&apos;s you.</p>
+          <label className="f" htmlFor="ph">Mobile number</label>
+          <input className="t" id="ph" type="tel" autoComplete="tel" placeholder="07700 900123" value={phone}
+            onChange={(e) => { setPhone(e.target.value); setCodeSent(false); }} />
+          {codeSent && (
+            <>
+              <label className="f" htmlFor="code">6-digit code</label>
+              <input className="t" id="code" inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={code}
+                onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))} />
+            </>
+          )}
+          {error && <p className="err">{error}</p>}
+          {codeSent
+            ? <button className="btn" disabled={busy || code.length !== 6} onClick={checkCode}>{busy ? "Checking…" : "Check code"}</button>
+            : <button className="btn" disabled={busy || !phone.trim()} onClick={sendCode}>{busy ? "Sending…" : "Text me a code"}</button>}
+          {codeSent && <button className="back" onClick={sendCode} disabled={busy}>Send a new code</button>}
+        </>
+      )}
+      <button className="back" onClick={() => { setLocked(false); back(); }}>← Back</button>
+    </>
+  );
+
+  if (step === "address") return (
+    <>
+      {head}
+      <h2>Where should the barber come?</h2>
+      <p className="lead">Travel is priced on the drive from {shop}. We cover up to 13 miles.</p>
+      <label className="f" htmlFor="st">First line of address</label>
+      <input className="t" id="st" autoComplete="address-line1" value={street} onChange={(e) => setStreet(e.target.value)} />
+      <label className="f" htmlFor="pc">Postcode</label>
+      <input className="t" id="pc" autoComplete="postal-code" value={postcode}
+        onChange={(e) => { setPostcode(e.target.value); setArea(null); setOutOfArea(false); }} />
+      {error && <p className="err">{error}</p>}
+      {area && (
+        <div className="sum" style={{ marginTop: 14 }}>
+          <div className="row"><span>Drive from the shop</span><span>about {area.driveMinutes} min</span></div>
+          <div className="row"><span>Travel</span><span className="price">{area.distanceStep ? gbp(area.distanceStep) : "Free"}</span></div>
+        </div>
+      )}
+      {outOfArea && <button className="btn ghost" onClick={toShop}>Book at the shop instead</button>}
+      {area
+        ? <button className="btn" disabled={!street.trim()} onClick={next}>Choose a service</button>
+        : <button className="btn" disabled={busy || !postcode.trim()} onClick={checkArea}>{busy ? "Checking…" : "Check postcode"}</button>}
+      <button className="back" onClick={back}>← Back</button>
+    </>
+  );
+
+  if (step === "service") return (
+    <>
+      {head}
+      <h2>What do you need?</h2>
+      {!home && (
+        <div className="sum">
+          <div className="row"><span>Where</span><span>{address}<br /><a href={maps} target="_blank" rel="noopener">Get directions</a></span></div>
+          <div className="row"><span>When</span><span>19:00 to midnight, at least 1 hour&apos;s notice</span></div>
+          <div className="row"><span>Booking fee</span><span className="price">{gbp(cheapest)}–{gbp(dearest)}</span></div>
+        </div>
+      )}
+      <div className="opts" style={{ marginTop: 14 }}>
         {services.map((s) => (
           <button key={s.id} className="opt" aria-pressed={serviceId === s.id} onClick={() => setServiceId(s.id)}>
             <span><b>{s.name}</b><small>about {s.mins} min</small></span>
@@ -100,18 +252,20 @@ export default function BookingFlow({ services, fees, advanceDays, shop, address
         ))}
       </div>
       <p className="note">
-        Every booking adds a booking fee, because the barber opens the shop out of hours. The earlier you book, the less it
+        Every booking adds a booking fee, because the barber works out of hours. The earlier you book, the less it
         is: {fees.map((f) => `${gbp(f.fee)} ${f.minHoursAhead ? `${f.minHoursAhead}+ hours ahead` : "with less notice"}`).join(", ")}.
+        {home && area?.distanceStep ? ` Travel adds ${gbp(area.distanceStep)}.` : ""}
       </p>
-      <button className="btn" disabled={!serviceId} onClick={() => setStep(2)}>Choose a time</button>
+      <button className="btn" disabled={!serviceId} onClick={next}>Choose a time</button>
+      <button className="back" onClick={back}>← Back</button>
     </>
   );
 
-  if (step === 2) return (
+  if (step === "time") return (
     <>
-      <Steps n={2} />
-      <h2>When can you get here?</h2>
-      <p className="lead">Pick an evening, then a time. Leave time to drive and park.</p>
+      {head}
+      <h2>{home ? "When should the barber arrive?" : "When can you get here?"}</h2>
+      <p className="lead">{home ? "Pick an evening, then a time." : "Pick an evening, then a time. Leave time to drive and park."}</p>
       {error && <p className="err">{error}</p>}
       {nights === null ? <p className="lead">Checking free times…</p> : (
         <>
@@ -141,14 +295,14 @@ export default function BookingFlow({ services, fees, advanceDays, shop, address
           )}
         </>
       )}
-      <button className="btn" disabled={!slot} onClick={() => setStep(3)}>Choose a barber</button>
-      <button className="back" onClick={() => setStep(1)}>← Change service</button>
+      <button className="btn" disabled={!slot} onClick={next}>Choose a barber</button>
+      <button className="back" onClick={back}>← Change service</button>
     </>
   );
 
-  if (step === 3) return (
+  if (step === "barber") return (
     <>
-      <Steps n={3} />
+      {head}
       <h2>Do you have a preferred barber?</h2>
       <p className="lead">We ask them first. You&apos;re only charged once a barber accepts.</p>
       <div className="opts">
@@ -174,42 +328,47 @@ export default function BookingFlow({ services, fees, advanceDays, shop, address
           </div>
         </>
       )}
-      <button className="btn" onClick={() => setStep(4)}>Add your details</button>
-      <button className="back" onClick={() => setStep(2)}>← Change time</button>
+      <button className="btn" onClick={next}>Add your details</button>
+      <button className="back" onClick={back}>← Change time</button>
     </>
   );
 
-  if (step === 4) return (
+  if (step === "details") return (
     <>
-      <Steps n={4} />
-      <h2>Who&apos;s coming in?</h2>
-      <p className="lead">We text this number when your barber is confirmed.</p>
+      {head}
+      <h2>{home ? "Who's having the cut?" : "Who's coming in?"}</h2>
+      <p className="lead">{home ? `We text ${phone} when your barber is confirmed and on the way.` : "We text this number when your barber is confirmed."}</p>
       <label className="f" htmlFor="nm">Name</label>
       <input className="t" id="nm" autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} />
-      <label className="f" htmlFor="ph">Mobile number</label>
-      <input className="t" id="ph" type="tel" autoComplete="tel" placeholder="07700 900123" value={phone} onChange={(e) => setPhone(e.target.value)} />
+      {!home && (
+        <>
+          <label className="f" htmlFor="ph">Mobile number</label>
+          <input className="t" id="ph" type="tel" autoComplete="tel" placeholder="07700 900123" value={phone} onChange={(e) => setPhone(e.target.value)} />
+        </>
+      )}
       {error && <p className="err">{error}</p>}
-      <button className="btn" disabled={!name.trim() || !phone.trim()} onClick={() => { setError(""); setStep(5); }}>Review request</button>
-      <button className="back" onClick={() => setStep(3)}>← Change barber</button>
+      <button className="btn" disabled={!name.trim() || !phone.trim()} onClick={next}>Review request</button>
+      <button className="back" onClick={back}>← Change barber</button>
     </>
   );
 
   return (
     <>
-      <Steps n={5} />
+      {head}
       <h2>Request a barber</h2>
       <p className="lead">We hold the total on your card and only charge it when a barber accepts. If nobody can, the hold is released and you pay nothing.</p>
       <div className="sum">
         <div className="row"><span>Time</span><span className="price">{slot && `${nightLabel(slot.at)} ${fmt(slot.at)}`}</span></div>
-        <div className="row"><span>Shop</span><span>{shop}</span></div>
+        <div className="row"><span>Where</span><span>{home ? `${street}, ${area?.postcode}` : shop}</span></div>
         <div className="row"><span>Barber</span><span>{preferred ? `${preferred}${allowFallback ? ", or another if they can't" : " only"}` : "No preference"}</span></div>
         <div className="row"><span>{svc?.name}</span><span className="price">{svc && gbp(svc.price)}</span></div>
         <div className="row"><span>Booking fee<br /><small>{slot?.tierLabel}</small></span><span className="price">{slot && gbp(slot.fee)}</span></div>
+        {home && <div className="row"><span>Travel<br /><small>about {area?.driveMinutes} min from the shop</small></span><span className="price">{travel ? gbp(travel) : "Free"}</span></div>}
         <div className="row total"><span>Total</span><span className="price">{gbp(total)}</span></div>
       </div>
       {error && <p className="err">{error}</p>}
       <div className="h3">Before you book</div>
-      <ul className="rules">{rules.map((r) => <li key={r}>{r}</li>)}</ul>
+      <ul className="rules">{shownRules.map((r) => <li key={r}>{r}</li>)}</ul>
       <label className="agree">
         <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} />
         <span>
@@ -218,7 +377,7 @@ export default function BookingFlow({ services, fees, advanceDays, shop, address
         </span>
       </label>
       <button className="btn" disabled={busy || !agreed} onClick={pay}>{busy ? "Opening secure payment…" : `Request booking · hold ${gbp(total)}`}</button>
-      <button className="back" onClick={() => { setError(""); setStep(4); }}>← Edit details</button>
+      <button className="back" onClick={back}>← Edit details</button>
     </>
   );
 }

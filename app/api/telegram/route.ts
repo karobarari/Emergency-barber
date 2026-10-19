@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { assign, complete, getBooking, noShow, preferredCant, refund } from "@/lib/bookings";
-import { barbers, LATE_GRACE_MINS, tapper } from "@/lib/config";
+import { arrived, assign, complete, getBooking, leftSafely, noShow, onTheWay, preferredCant, refund } from "@/lib/bookings";
+import { barbers, tapper } from "@/lib/config";
 import { fmtTime } from "@/lib/slots";
 import { answerCallback, reportError } from "@/lib/telegram";
 
@@ -64,7 +64,7 @@ export async function POST(req: Request) {
       await reportError(`"Can't" from Telegram failed for booking ${id}`, e);
       await answerCallback(cq.id, "Something went wrong. Try again in a moment.");
     }
-  } else if ((action === "done" || action === "noshow") && who.checked) {
+  } else if (["done", "noshow", "way", "arrived", "left"].includes(action) && who.checked) {
     // Only the barber who took the job closes it off.
     const current = await getBooking(id).catch(() => null);
     if (current && (await notYou(current.barber))) return NextResponse.json({ ok: true });
@@ -84,12 +84,22 @@ export async function POST(req: Request) {
       await answerCallback(
         cq.id,
         r.ok ? "Marked as a no-show. Charge kept, customer texted."
-          : r.from ? `Too early. No-show can be marked from ${fmtTime(r.from)}, once they're ${LATE_GRACE_MINS} min late.`
+          : r.from ? `Too early. No-show can be marked from ${fmtTime(r.from)}.`
           : "Already closed off",
       );
     } catch (e) {
       await reportError(`Marking booking ${id} a no-show from Telegram failed`, e);
       await answerCallback(cq.id, "Couldn't mark the no-show. Try again in a moment.");
+    }
+  } else if (action === "way" || action === "arrived" || action === "left") {
+    const step = { way: onTheWay, arrived, left: leftSafely }[action];
+    const said = { way: "Customer texted your arrival time. Drive safe.", arrived: "Customer texted that you're here.", left: "Thanks, glad you're out safely." }[action];
+    try {
+      const b = await step(id);
+      await answerCallback(cq.id, b ? said : "Already done");
+    } catch (e) {
+      await reportError(`"${action}" from Telegram failed for booking ${id}`, e);
+      await answerCallback(cq.id, "Something went wrong. Try again in a moment.");
     }
   }
   return NextResponse.json({ ok: true });
