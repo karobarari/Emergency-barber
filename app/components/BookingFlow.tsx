@@ -33,11 +33,14 @@ export default function BookingFlow({ services, fees, advanceDays, shop, address
 
   const loadSlots = () => {
     setNights(null);
-    fetch("/api/slots")
+    // Longer services need more free time after the slot, so the list depends on the service.
+    fetch(`/api/slots?service=${serviceId}`)
       .then((r) => r.json())
       .then((d) => {
         const list: Night[] = d.nights || [];
         setNights(list);
+        // Keep the picked slot only if it still has room for this service, with its latest fee.
+        setSlot((s) => list.flatMap((n) => n.slots).find((x) => x.at === s?.at) ?? null);
         // Stay on the chosen evening if it still has slots, otherwise jump to the first one that does.
         setNightKey((k) => (list.find((n) => n.key === k && n.slots.length) ?? list.find((n) => n.slots.length))?.key ?? null);
       })

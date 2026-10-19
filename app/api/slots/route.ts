@@ -1,14 +1,17 @@
 import { NextResponse } from "next/server";
+import { SERVICES } from "@/lib/config";
 import { advanceBand } from "@/lib/pricing";
 import { bookingNights, dayKey, fmtDay, londonParts, londonTime, nightOf } from "@/lib/slots";
 import { freeSlots } from "@/lib/taken";
 
 export const dynamic = "force-dynamic";
 
-/** Free slots grouped by evening, each with the booking fee it would cost if paid for now. */
-export async function GET() {
+/** Free slots for a service (?service=cut) grouped by evening, each with the booking fee it would cost if paid for now. */
+export async function GET(req: Request) {
+  const serviceId = new URL(req.url).searchParams.get("service");
+  if (!SERVICES.some((s) => s.id === serviceId)) return NextResponse.json({ error: "Choose a service." }, { status: 400 });
   const now = new Date();
-  const slots = await freeSlots(now);
+  const slots = await freeSlots(now, { serviceId: serviceId! });
   const today = londonParts(now);
   const todayKey = dayKey(today);
   const tomorrowKey = dayKey(londonParts(londonTime(today.y, today.m, today.d + 1, 12, 0)));

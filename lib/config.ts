@@ -54,6 +54,15 @@ export const SERVICES = [
 
 export type ServiceId = (typeof SERVICES)[number]["id"];
 
+/**
+ * How many bookings can run at once (see lib/capacity.ts). Home and hotel visits always leave one barber free,
+ * so the shop gets priority.
+ */
+export const CAPACITY = {
+  barberCount: Number(process.env.BARBER_COUNT || 3),
+  shopChairs: Number(process.env.SHOP_CHAIRS || 1),
+};
+
 export const SLOTS = {
   noticeMins: 60,
   stepMins: 15,

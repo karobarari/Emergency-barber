@@ -1,4 +1,4 @@
--- Run once in Supabase → SQL editor
+-- Run once in Supabase → SQL editor to set up a new database, then supabase/2026-10-19-capacity.sql.
 create extension if not exists pgcrypto;
 
 create table if not exists bookings (
@@ -9,6 +9,9 @@ create table if not exists bookings (
   service_id          text not null,
   service_name        text not null,
   slot_at             timestamptz not null,
+  location_type       text not null default 'shop' check (location_type in ('shop','home','hotel')),
+  block_start         timestamptz not null,   -- when the barber is first busy (leaves the shop, for visits)
+  block_end           timestamptz not null,   -- when they're free again
   service_price       int  not null,          -- pence
   advance_fee         int  not null,          -- pence, booking fee by how far ahead it was booked
   price_tier          text not null check (price_tier in ('12h','6h','standard')),
@@ -27,11 +30,9 @@ create table if not exists bookings (
   slot_reminded_at    timestamptz             -- when the customer got the 30-min reminder text
 );
 
--- One customer per slot. Pending rows hold the slot while the customer is on Stripe;
--- Stripe expires the checkout after 30 min and the webhook marks the row 'expired'.
-create unique index if not exists bookings_one_per_slot
-  on bookings (slot_at) where status in ('pending','new','confirmed');
-
+-- Bookings are inserted through reserve_booking(), which checks there's a barber and chair free.
+-- Run supabase/2026-10-19-capacity.sql after this file to create it. Pending rows hold their place while the
+-- customer is on Stripe; Stripe expires the checkout after 30 min and the webhook marks the row 'expired'.
 create index if not exists bookings_slot_at on bookings (slot_at);
 
 -- Only the server (service role key) touches this table.

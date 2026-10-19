@@ -25,11 +25,6 @@ describe("availableSlots", () => {
     expect(iso(slots[0])).toBe("2026-10-19T20:15:00.000Z"); // 21:15 BST
   });
 
-  it("skips taken slots", () => {
-    const taken = [new Date("2026-10-20T18:00:00Z")];
-    expect(availableSlots(new Date("2026-10-19T10:00:00Z"), taken).map(iso)).not.toContain(iso(taken[0]));
-  });
-
   it("after midnight, still offers 6 more evenings", () => {
     const now = new Date("2026-10-20T00:30:00Z"); // Tue 01:30 BST
     const nights = bookingNights(now).map(dayKey);

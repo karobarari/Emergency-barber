@@ -61,17 +61,17 @@ function nightWindow(day: Day) {
   };
 }
 
-/** Bookable slots across every evening customers can book, at least SLOTS.noticeMins from now, minus taken slots. */
-export function availableSlots(now: Date, taken: Date[] = []): Date[] {
+/**
+ * Every slot across the evenings customers can book, at least SLOTS.noticeMins from now. Doesn't know about other
+ * bookings: lib/taken.ts removes the ones without room.
+ */
+export function availableSlots(now: Date): Date[] {
   const step = SLOTS.stepMins * 60e3;
   const earliest = Math.ceil((now.getTime() + SLOTS.noticeMins * 60e3) / step) * step;
-  const takenSet = new Set(taken.map((t) => t.getTime()));
   const out: Date[] = [];
   for (const night of bookingNights(now)) {
     const { start, end } = nightWindow(night);
-    for (let t = Math.max(start.getTime(), earliest); t <= end.getTime(); t += step) {
-      if (!takenSet.has(t)) out.push(new Date(t));
-    }
+    for (let t = Math.max(start.getTime(), earliest); t <= end.getTime(); t += step) out.push(new Date(t));
   }
   return out;
 }

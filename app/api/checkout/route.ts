@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { CANCEL_CUTOFF_MINS, gbp, LATE_GRACE_MINS, OPERATOR, SERVICES, SHOP } from "@/lib/config";
+import { blockFor } from "@/lib/capacity";
+import { CANCEL_CUTOFF_MINS, CAPACITY, gbp, LATE_GRACE_MINS, OPERATOR, SERVICES, SHOP } from "@/lib/config";
 import { quote } from "@/lib/pricing";
 import { fmtDay, fmtTime } from "@/lib/slots";
 import { ukMobile } from "@/lib/sms";
@@ -25,7 +26,7 @@ export async function POST(req: Request) {
 
   const slot = new Date(body.slot);
   const now = new Date();
-  const free = await freeSlots(now);
+  const free = await freeSlots(now, { serviceId: service.id });
   if (!free.some((s) => s.getTime() === slot.getTime())) {
     return bad("That time has just gone. Pick another slot.");
   }
@@ -42,20 +43,23 @@ export async function POST(req: Request) {
       { status: 409 },
     );
   }
-  const { data: booking, error } = await db()
-    .from("bookings")
-    .insert({
+  // Checks for room and inserts in one locked step, so two customers can't both take the last place.
+  const block = blockFor({ locationType: "shop", slotAt: slot, serviceId: service.id });
+  const { data: booking, error } = await db().rpc("reserve_booking", {
+    p_booking: {
       name, phone,
       service_id: service.id, service_name: service.name,
       slot_at: slot.toISOString(),
+      location_type: block.locationType, block_start: block.start.toISOString(), block_end: block.end.toISOString(),
       service_price: q.servicePrice, advance_fee: q.advanceFee, price_tier: q.tier, total: q.total,
       status: "pending",
       terms_accepted_at: new Date().toISOString(),
-    })
-    .select()
-    .single();
-  // A unique-index clash (23505) means someone grabbed the slot a moment ago.
-  if (error?.code === "23505") return bad("That time has just gone. Pick another slot.");
+    },
+    p_barber_count: CAPACITY.barberCount,
+    p_shop_chairs: CAPACITY.shopChairs,
+  });
+  // EBFUL: someone took the last place a moment ago.
+  if (error?.code === "EBFUL") return bad("That time has just gone. Pick another slot.");
   if (error || !booking) {
     await reportError("Booking insert failed", error?.message ?? error);
     return NextResponse.json({ error: "Couldn't save your booking. Try again in a moment." }, { status: 500 });
