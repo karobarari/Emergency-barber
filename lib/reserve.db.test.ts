@@ -27,6 +27,7 @@ describe.skipIf(!url)("reserve_booking (Postgres)", () => {
     await pool.query(sql("2026-10-19-customers.sql"));
     await pool.query(sql("2026-10-19-preferred-barber.sql"));
     await pool.query(sql("2026-10-19-home-visits.sql"));
+    await pool.query(sql("2026-10-19-hotels.sql"));
   });
 
   afterAll(async () => {

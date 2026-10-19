@@ -19,7 +19,7 @@ export default function Refunds() {
         <div className="row"><span>We cancel after confirming</span><span>Full refund</span></div>
       </div>
 
-      <div className="h3">Home visits</div>
+      <div className="h3">Home and hotel visits</div>
       <div className="sum">
         <div className="row"><span>No barber free</span><span>Not charged, hold released</span></div>
         <div className="row"><span>You cancel before a barber confirms</span><span>Not charged, hold released</span></div>

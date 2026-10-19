@@ -6,21 +6,29 @@ type Fee = { minHoursAhead: number; fee: number };
 type Slot = { at: string; fee: number; tierLabel: string; travel?: number };
 type Night = { key: string; label: string; slots: Slot[] };
 type Area = { postcode: string; driveMinutes: number; driveMiles: number; distanceStep: number };
+type Hotel = { slug: string; name: string; travel: number; driveMinutes: number };
 type Props = {
   services: Service[]; fees: Fee[]; advanceDays: number; shop: string; address: string; maps: string;
   rules: string[]; homeRules: string[]; barbers: string[]; homeEnabled: boolean;
+  /** Set on a hotel's partner link (/h/[slug]): no location step, and the concierge books for a guest. */
+  hotel?: Hotel;
 };
 
 const gbp = (p: number) => `£${(p / 100).toFixed(p % 100 ? 2 : 0)}`;
 const fmt = (iso: string) =>
   new Date(iso).toLocaleTimeString("en-GB", { timeZone: "Europe/London", hour: "2-digit", minute: "2-digit" });
 
-/** Shop bookings skip the phone check and address. Home visits check the phone first (SPEC-v2 §6.2). */
+/**
+ * Shop bookings skip the phone check and address. Home visits check the phone first (SPEC-v2 §6.2). Hotels skip
+ * the location step and add the guest's details (§7.2).
+ */
 const FLOWS = {
   shop: ["where", "service", "time", "barber", "details", "review"],
   home: ["where", "phone", "address", "service", "time", "barber", "details", "review"],
+  hotel: ["service", "time", "barber", "details", "guest", "review"],
 } as const;
-type Step = (typeof FLOWS)["home"][number];
+type Mode = keyof typeof FLOWS;
+type Step = (typeof FLOWS)[Mode][number];
 
 function Steps({ n, of }: { n: number; of: number }) {
   return <div className="steps">{Array.from({ length: of }, (_, i) => <span key={i} className={i <= n ? "on" : ""} />)}</div>;
@@ -31,8 +39,8 @@ const post = (url: string, body: unknown) =>
     .then(async (r) => ({ ok: r.ok, data: await r.json().catch(() => ({})) }))
     .catch(() => ({ ok: false, data: { error: "Something went wrong. Check your connection and try again." } }));
 
-export default function BookingFlow({ services, fees, advanceDays, shop, address, maps, rules, homeRules, barbers, homeEnabled }: Props) {
-  const [mode, setMode] = useState<"shop" | "home">("shop");
+export default function BookingFlow({ services, fees, advanceDays, shop, address, maps, rules, homeRules, barbers, homeEnabled, hotel }: Props) {
+  const [mode, setMode] = useState<Mode>(hotel ? "hotel" : "shop");
   const [at, setAt] = useState(0);
   const [serviceId, setServiceId] = useState<string | null>(null);
   const [nights, setNights] = useState<Night[] | null>(null);
@@ -53,26 +61,31 @@ export default function BookingFlow({ services, fees, advanceDays, shop, address
   const [postcode, setPostcode] = useState("");
   const [area, setArea] = useState<Area | null>(null);
   const [outOfArea, setOutOfArea] = useState(false);
+  // Hotels
+  const [guestName, setGuestName] = useState("");
+  const [room, setRoom] = useState("");
 
-  const flow = FLOWS[mode];
+  const flow: readonly Step[] = FLOWS[mode];
   const step: Step = flow[at];
-  const go = (s: Step) => { setError(""); setAt(flow.indexOf(s as never)); };
+  const go = (s: Step) => { setError(""); setAt(flow.indexOf(s)); };
   const next = () => { setError(""); setAt((i) => i + 1); };
   const back = () => { setError(""); setAt((i) => i - 1); };
   const toShop = () => { setMode("shop"); setLocked(false); setOutOfArea(false); setError(""); setAt(1); };
   const home = mode === "home";
+  const atHotel = mode === "hotel";
 
   const svc = services.find((s) => s.id === serviceId);
   const travel = slot?.travel ?? 0;
   const total = svc && slot ? svc.price + slot.fee + travel : 0;
   const cheapest = Math.min(...fees.map((f) => f.fee));
   const dearest = Math.max(...fees.map((f) => f.fee));
-  const shownRules = home ? homeRules : rules;
+  const shownRules = mode === "shop" ? rules : homeRules;
 
   const loadSlots = () => {
     setNights(null);
     // Longer services need more free time after the slot, and visits also block the drive, so the list depends on both.
-    const where = home && area ? `&type=home&postcode=${encodeURIComponent(area.postcode)}` : "";
+    const where = hotel ? `&type=hotel&hotel=${hotel.slug}`
+      : home && area ? `&type=home&postcode=${encodeURIComponent(area.postcode)}` : "";
     fetch(`/api/slots?service=${serviceId}${where}`)
       .then(async (r) => {
         const d = await r.json();
@@ -142,6 +155,7 @@ export default function BookingFlow({ services, fees, advanceDays, shop, address
     const r = await post("/api/checkout", {
       serviceId, slot: slot.at, name, phone, agreed, expectedTotal: total, preferredBarber: preferred, allowFallback,
       ...(home ? { locationType: "home", address: street, postcode: area?.postcode } : {}),
+      ...(hotel ? { locationType: "hotel", hotel: hotel.slug, guestName, room } : {}),
     });
     if (r.data?.url) { window.location.href = r.data.url; return; }
     setBusy(false);
@@ -235,8 +249,14 @@ export default function BookingFlow({ services, fees, advanceDays, shop, address
   if (step === "service") return (
     <>
       {head}
-      <h2>What do you need?</h2>
-      {!home && (
+      <h2>{hotel ? `Book a cut for a guest at ${hotel.name}` : "What do you need?"}</h2>
+      {hotel && (
+        <p className="lead">
+          A barber comes to the guest&apos;s room, tonight or up to {advanceDays} days ahead. The hold goes on your card and is
+          only charged once a barber accepts. {hotel.travel ? `Travel adds ${gbp(hotel.travel)}.` : ""}
+        </p>
+      )}
+      {mode === "shop" && (
         <div className="sum">
           <div className="row"><span>Where</span><span>{address}<br /><a href={maps} target="_blank" rel="noopener">Get directions</a></span></div>
           <div className="row"><span>When</span><span>19:00 to midnight, at least 1 hour&apos;s notice</span></div>
@@ -257,15 +277,15 @@ export default function BookingFlow({ services, fees, advanceDays, shop, address
         {home && area?.distanceStep ? ` Travel adds ${gbp(area.distanceStep)}.` : ""}
       </p>
       <button className="btn" disabled={!serviceId} onClick={next}>Choose a time</button>
-      <button className="back" onClick={back}>← Back</button>
+      {at > 0 && <button className="back" onClick={back}>← Back</button>}
     </>
   );
 
   if (step === "time") return (
     <>
       {head}
-      <h2>{home ? "When should the barber arrive?" : "When can you get here?"}</h2>
-      <p className="lead">{home ? "Pick an evening, then a time." : "Pick an evening, then a time. Leave time to drive and park."}</p>
+      <h2>{mode === "shop" ? "When can you get here?" : "When should the barber arrive?"}</h2>
+      <p className="lead">{mode === "shop" ? "Pick an evening, then a time. Leave time to drive and park." : "Pick an evening, then a time."}</p>
       {error && <p className="err">{error}</p>}
       {nights === null ? <p className="lead">Checking free times…</p> : (
         <>
@@ -336,8 +356,11 @@ export default function BookingFlow({ services, fees, advanceDays, shop, address
   if (step === "details") return (
     <>
       {head}
-      <h2>{home ? "Who's having the cut?" : "Who's coming in?"}</h2>
-      <p className="lead">{home ? `We text ${phone} when your barber is confirmed and on the way.` : "We text this number when your barber is confirmed."}</p>
+      <h2>{atHotel ? "Your details" : home ? "Who's having the cut?" : "Who's coming in?"}</h2>
+      <p className="lead">
+        {atHotel ? "We text this number when a barber accepts, sets off and arrives, so it's best on the desk's mobile."
+          : home ? `We text ${phone} when your barber is confirmed and on the way.` : "We text this number when your barber is confirmed."}
+      </p>
       <label className="f" htmlFor="nm">Name</label>
       <input className="t" id="nm" autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} />
       {!home && (
@@ -347,8 +370,22 @@ export default function BookingFlow({ services, fees, advanceDays, shop, address
         </>
       )}
       {error && <p className="err">{error}</p>}
-      <button className="btn" disabled={!name.trim() || !phone.trim()} onClick={next}>Review request</button>
+      <button className="btn" disabled={!name.trim() || !phone.trim()} onClick={next}>{atHotel ? "Add the guest" : "Review request"}</button>
       <button className="back" onClick={back}>← Change barber</button>
+    </>
+  );
+
+  if (step === "guest") return (
+    <>
+      {head}
+      <h2>Who&apos;s the guest?</h2>
+      <p className="lead">The barber goes to the room and asks for the guest by name.</p>
+      <label className="f" htmlFor="gn">Guest&apos;s name</label>
+      <input className="t" id="gn" value={guestName} onChange={(e) => setGuestName(e.target.value)} />
+      <label className="f" htmlFor="rm">Room number</label>
+      <input className="t" id="rm" value={room} onChange={(e) => setRoom(e.target.value)} />
+      <button className="btn" disabled={!guestName.trim() || !room.trim()} onClick={next}>Review request</button>
+      <button className="back" onClick={back}>← Your details</button>
     </>
   );
 
@@ -359,11 +396,17 @@ export default function BookingFlow({ services, fees, advanceDays, shop, address
       <p className="lead">We hold the total on your card and only charge it when a barber accepts. If nobody can, the hold is released and you pay nothing.</p>
       <div className="sum">
         <div className="row"><span>Time</span><span className="price">{slot && `${nightLabel(slot.at)} ${fmt(slot.at)}`}</span></div>
-        <div className="row"><span>Where</span><span>{home ? `${street}, ${area?.postcode}` : shop}</span></div>
+        <div className="row"><span>Where</span><span>{hotel ? `${hotel.name}, room ${room}` : home ? `${street}, ${area?.postcode}` : shop}</span></div>
+        {atHotel && <div className="row"><span>Guest</span><span>{guestName}</span></div>}
         <div className="row"><span>Barber</span><span>{preferred ? `${preferred}${allowFallback ? ", or another if they can't" : " only"}` : "No preference"}</span></div>
         <div className="row"><span>{svc?.name}</span><span className="price">{svc && gbp(svc.price)}</span></div>
         <div className="row"><span>Booking fee<br /><small>{slot?.tierLabel}</small></span><span className="price">{slot && gbp(slot.fee)}</span></div>
-        {home && <div className="row"><span>Travel<br /><small>about {area?.driveMinutes} min from the shop</small></span><span className="price">{travel ? gbp(travel) : "Free"}</span></div>}
+        {mode !== "shop" && (
+          <div className="row">
+            <span>Travel<br /><small>about {hotel?.driveMinutes ?? area?.driveMinutes} min from the shop</small></span>
+            <span className="price">{travel ? gbp(travel) : "Free"}</span>
+          </div>
+        )}
         <div className="row total"><span>Total</span><span className="price">{gbp(total)}</span></div>
       </div>
       {error && <p className="err">{error}</p>}

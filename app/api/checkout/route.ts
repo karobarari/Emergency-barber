@@ -2,11 +2,12 @@ import { NextResponse } from "next/server";
 import { blockFor } from "@/lib/capacity";
 import { barbers, CANCEL_CUTOFF_MINS, CAPACITY, gbp, LATE_GRACE_MINS, OPERATOR, SERVICES, SHOP } from "@/lib/config";
 import { homeArea } from "@/lib/homeArea";
+import { getHotel, hotelTrip } from "@/lib/hotels";
 import { quote } from "@/lib/pricing";
 import { fmtDay, fmtTime } from "@/lib/slots";
 import { ukMobile } from "@/lib/sms";
 import { stripe } from "@/lib/stripe";
-import { db } from "@/lib/supabase";
+import { db, type Hotel } from "@/lib/supabase";
 import { reportError } from "@/lib/telegram";
 import { freeSlots } from "@/lib/taken";
 
@@ -29,8 +30,27 @@ export async function POST(req: Request) {
 
   const home = body.locationType === "home";
   let phone: string | null;
-  let visit: { address: string; postcode: string; lat: number; lng: number; drive_minutes: number; drive_miles: number } | null = null;
-  if (home) {
+  let visit: { address: string; postcode: string; lat: number | null; lng: number | null; drive_minutes: number; drive_miles: number } | null = null;
+  let hotel: Hotel | null = null;
+  let hotelFields = {};
+  // For hotels, the booking is in the guest's name and the texts go to the concierge who booked.
+  let bookingName = name;
+  if (body.locationType === "hotel") {
+    hotel = await getHotel(String(body.hotel || ""));
+    if (!hotel) return bad("This booking link isn't active. Contact us to book.", 404);
+    phone = ukMobile(String(body.phone || ""));
+    if (!phone) return bad("Enter a UK mobile number for the concierge, like 07700 900123.");
+    const guest = String(body.guestName || "").trim().slice(0, 80);
+    const room = String(body.room || "").trim().slice(0, 20);
+    if (!guest) return bad("Add the guest's name.");
+    if (!room) return bad("Add the guest's room number.");
+    bookingName = guest;
+    visit = {
+      address: `${hotel.name}, ${hotel.address}`, postcode: hotel.postcode, lat: hotel.lat, lng: hotel.lng,
+      drive_minutes: hotel.drive_minutes!, drive_miles: Number(hotel.drive_miles),
+    };
+    hotelFields = { hotel_id: hotel.id, guest_name: guest, room, booker_name: name, booker_phone: phone };
+  } else if (home) {
     // Never from the browser: the phone is the one verified by text code, and the drive is worked out here.
     const area = await homeArea(String(body.postcode || ""));
     if (!area.ok) return bad(area.error, area.status);
@@ -42,7 +62,7 @@ export async function POST(req: Request) {
     phone = ukMobile(String(body.phone || ""));
     if (!phone) return bad("Enter a UK mobile number, like 07700 900123.");
   }
-  const locationType = home ? "home" : "shop";
+  const locationType = hotel ? "hotel" : home ? "home" : "shop";
   const driveMinutes = visit?.drive_minutes;
 
   const slot = new Date(body.slot);
@@ -53,7 +73,10 @@ export async function POST(req: Request) {
   }
 
   // Priced here, never from the browser, and locked into the card hold.
-  const q = quote({ serviceId: service.id, locationType, slotAt: slot, now, driveMinutes, driveMiles: visit?.drive_miles });
+  const q = quote({
+    serviceId: service.id, locationType, slotAt: slot, now,
+    ...(hotel ? hotelTrip(hotel) : { driveMinutes, driveMiles: visit?.drive_miles }),
+  });
   // The booking fee goes up as the slot gets closer. If it has since the customer saw it, show them the new total first.
   if (body.expectedTotal !== q.total) {
     return NextResponse.json(
@@ -68,7 +91,7 @@ export async function POST(req: Request) {
   const block = blockFor({ locationType, slotAt: slot, serviceId: service.id, driveMinutes });
   const { data: booking, error } = await db().rpc("reserve_booking", {
     p_booking: {
-      name, phone,
+      name: bookingName, phone,
       service_id: service.id, service_name: service.name,
       slot_at: slot.toISOString(),
       location_type: block.locationType, block_start: block.start.toISOString(), block_end: block.end.toISOString(),
@@ -78,6 +101,7 @@ export async function POST(req: Request) {
       terms_accepted_at: new Date().toISOString(),
       // The barber arrives for the slot; Phase 5 refines this from where they actually are.
       ...(visit ? { ...visit, eta_at: slot.toISOString() } : {}),
+      ...hotelFields,
     },
     p_barber_count: CAPACITY.barberCount,
     p_shop_chairs: CAPACITY.shopChairs,
@@ -90,7 +114,8 @@ export async function POST(req: Request) {
   }
 
   const site = process.env.SITE_URL || new URL(req.url).origin;
-  const where = visit ? `home visit to ${visit.address}, ${visit.postcode}` : `${SHOP.name}, ${SHOP.address}`;
+  const where = hotel ? `hotel visit to ${hotel.name}, room ${(hotelFields as { room: string }).room}`
+    : visit ? `home visit to ${visit.address}, ${visit.postcode}` : `${SHOP.name}, ${SHOP.address}`;
   const rules = visit
     ? `Cancel free until a barber confirms. After that the booking fee and travel are kept, nothing is refunded once your barber is on the way, and it's a no-show if you're not there ${LATE_GRACE_MINS} min after they arrive.`
     : `Cancel free until a barber confirms. After that the ${gbp(q.advanceFee)} booking fee is kept, nothing is refunded within ${CANCEL_CUTOFF_MINS} min, and the barber may leave if you are over ${LATE_GRACE_MINS} min late.`;
@@ -106,7 +131,7 @@ export async function POST(req: Request) {
       { quantity: 1, price_data: { currency: "gbp", unit_amount: q.servicePrice, product_data: { name: `${service.name} at ${fmtTime(slot)} on ${fmtDay(slot)}` } } },
       { quantity: 1, price_data: { currency: "gbp", unit_amount: q.advanceFee, product_data: { name: `Booking fee (${q.tierLabel})` } } },
       ...(q.distanceStep
-        ? [{ quantity: 1, price_data: { currency: "gbp", unit_amount: q.distanceStep, product_data: { name: `Travel (${visit!.drive_minutes} min from the shop)` } } }]
+        ? [{ quantity: 1, price_data: { currency: "gbp", unit_amount: q.distanceStep, product_data: { name: hotel ? `Travel to ${hotel.name}` : `Travel (${visit!.drive_minutes} min from the shop)` } } }]
         : []),
     ],
     metadata: { booking_id: booking.id },

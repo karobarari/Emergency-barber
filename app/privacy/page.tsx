@@ -20,6 +20,7 @@ export default function Privacy() {
         <li>Your name and UK mobile number.</li>
         <li>Your booking: service, time, price, status, which barber took it, any refund, and when you agreed to the booking rules.</li>
         <li>For home visits: the address and postcode you give us, and the drive time from the shop.</li>
+        <li>For hotel bookings: the guest&apos;s name and room number, and the name and mobile of the concierge who booked.</li>
         <li>How many cuts you&apos;ve had at the shop and which barber you saw last, so we know when home visits are open to you.</li>
         <li>Stripe collects your card details and email address for the payment and receipt. We never see your full card number.</li>
       </ul>

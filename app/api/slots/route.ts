@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { SERVICES } from "@/lib/config";
 import { homeArea } from "@/lib/homeArea";
+import { getHotel, hotelTravel } from "@/lib/hotels";
 import { advanceBand } from "@/lib/pricing";
 import { bookingNights, dayKey, fmtDay, londonParts, londonTime, nightOf } from "@/lib/slots";
 import { freeSlots } from "@/lib/taken";
@@ -23,6 +24,11 @@ export async function GET(req: Request) {
     if (!area.ok) return NextResponse.json({ error: area.error }, { status: area.status });
     travel = area.distanceStep;
     want = { serviceId: serviceId!, locationType: "home", driveMinutes: area.driveMinutes };
+  } else if (params.get("type") === "hotel") {
+    const hotel = await getHotel(params.get("hotel") || "");
+    if (!hotel) return NextResponse.json({ error: "This booking link isn't active." }, { status: 404 });
+    travel = hotelTravel(hotel);
+    want = { serviceId: serviceId!, locationType: "hotel", driveMinutes: hotel.drive_minutes! };
   }
   const slots = await freeSlots(now, want);
   const today = londonParts(now);

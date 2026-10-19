@@ -72,7 +72,10 @@ export default async function Admin() {
       <div><b>{b.name}</b> · {b.service_name} · <span className="price">{gbp(b.total)}</span></div>
       <div className="cmeta">{b.phone}{b.barber ? ` · ${b.barber}` : ""}{b.status === "cancelled" ? ` · refunded ${gbp(b.refund_amount ?? 0)}` : ""}</div>
       {isMobile(b) && (
-        <div className="cmeta">🏠 {b.address}, {b.postcode} · {b.drive_minutes} min drive{b.distance_step ? ` · ${gbp(b.distance_step)} travel` : ""}</div>
+        <div className="cmeta">
+          {b.hotel_id ? "🏨" : "🏠"} {b.address}, {b.postcode} · {b.drive_minutes} min drive{b.distance_step ? ` · ${gbp(b.distance_step)} travel` : ""}
+          {b.hotel_id ? ` · room ${b.room}, booked by ${b.booker_name}` : ""}
+        </div>
       )}
       {b.preferred_barber && (
         <div className="cmeta">
@@ -134,7 +137,7 @@ export default async function Admin() {
     <main className="wrap">
       <AutoRefresh seconds={20} />
       <h2>Dispatch</h2>
-      <p className="note"><a href="/admin/customers">Customers</a></p>
+      <p className="note"><a href="/admin/customers">Customers</a> · <a href="/admin/hotels">Hotels</a></p>
       <div className="kpis">
         <div className="kpi"><b>{rows.filter((b) => b.status === "new").length}</b><span>Need a barber</span></div>
         <div className="kpi"><b>{rows.filter((b) => UNDERWAY.includes(b.status)).length}</b><span>Confirmed</span></div>

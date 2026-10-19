@@ -62,6 +62,32 @@ export type Booking = {
   arrived_at: string | null;
   left_at: string | null; // barber tapped "Left safely"
   safety_alerted_at: string | null;
+  // Hotel visits (supabase/2026-10-19-hotels.sql). `name` is the guest and `phone` the concierge, who gets the texts.
+  hotel_id: string | null;
+  guest_name: string | null;
+  room: string | null;
+  booker_name: string | null;
+  booker_phone: string | null;
+};
+
+/** A partner hotel, booked through /h/[slug] by its concierge. */
+export type Hotel = {
+  id: string;
+  slug: string;
+  name: string;
+  address: string;
+  postcode: string;
+  lat: number | null;
+  lng: number | null;
+  drive_minutes: number | null; // from the shop
+  drive_miles: number | null;
+  arrival_notes: string | null;
+  contact_name: string | null;
+  contact_phone: string | null;
+  contact_email: string | null;
+  distance_step_override: number | null; // pence
+  active: boolean;
+  created_at: string;
 };
 
 let client: SupabaseClient | null = null;

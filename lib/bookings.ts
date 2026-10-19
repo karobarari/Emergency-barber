@@ -11,6 +11,10 @@ import {
 } from "./telegram";
 import { cancelQuote, isMobile, noShowFrom, safetyCheckAt } from "./visit";
 
+/** Where a visit is, for texts. Hotel texts go to the concierge, so they say which guest and room. */
+const visitPlace = (b: Booking) =>
+  b.hotel_id ? `${b.address} for ${b.guest_name} (room ${b.room})` : `${b.address}, ${b.postcode}`;
+
 /**
  * Moves a booking from one status to another only if it's still in `from`, so two barbers can't both claim it.
  * Returns null if the booking wasn't in `from`. Throws on database errors so callers (and Stripe) can retry.
@@ -126,7 +130,7 @@ export async function assign(id: string, barber: string): Promise<Booking | "not
   await sendSms(
     b.phone,
     isMobile(b)
-      ? `${instead}${barber} is coming to ${b.address}, ${b.postcode} for ${fmtWhen(b.slot_at)}. We've now charged the ${gbp(b.total)} held on your card. ` +
+      ? `${instead}${barber} is coming to ${visitPlace(b)} for ${fmtWhen(b.slot_at)}. We've now charged the ${gbp(b.total)} held on your card. ` +
           `We'll text you when ${barber} sets off.`
       : `${instead}${barber} will open ${SHOP.name} for you at ${fmtWhen(b.slot_at)}. We've now charged the ${gbp(b.total)} held on your card. ` +
           `${SHOP.address}. Directions: ${mapsUrl()} ` +
@@ -404,7 +408,7 @@ export async function remindCustomers(now = Date.now()) {
     await sendSms(
       b.phone,
       isMobile(b)
-        ? `${SHOP.name}: ${b.barber} is coming to ${b.address} for ${fmtTime(b.slot_at)}. We'll text when they set off.`
+        ? `${SHOP.name}: ${b.barber} is coming to ${visitPlace(b)} for ${fmtTime(b.slot_at)}. We'll text when they set off.`
         : `${SHOP.name}: see you at ${fmtTime(b.slot_at)}. ${b.barber} is opening up at ${SHOP.address}. ` +
           `Directions: ${mapsUrl()} Running late? Reply to let us know. After ${LATE_GRACE_MINS} min the barber may leave.`,
     );
@@ -423,7 +427,7 @@ export async function onTheWay(id: string, now = Date.now()) {
   });
   if (!b) return null;
   await updateBookingAlert(b);
-  await sendSms(b.phone, `${SHOP.name}: ${b.barber} is on the way to ${b.address}, arriving around ${fmtTime(eta)}.`);
+  await sendSms(b.phone, `${SHOP.name}: ${b.barber} is on the way to ${visitPlace(b)}, arriving around ${fmtTime(eta)}.`);
   return b;
 }
 
@@ -432,7 +436,7 @@ export async function arrived(id: string, now = Date.now()) {
   const b = await transition(id, ["on_the_way"], { status: "arrived", arrived_at: new Date(now).toISOString() });
   if (!b) return null;
   await updateBookingAlert(b);
-  await sendSms(b.phone, `${SHOP.name}: ${b.barber} is here at ${b.address}. They'll call you if they can't get in.`);
+  await sendSms(b.phone, `${SHOP.name}: ${b.barber} is here at ${visitPlace(b)}. They'll call ${b.hotel_id ? "this number" : "you"} if they can't get in.`);
   return b;
 }
 

@@ -37,7 +37,7 @@ export default async function BookingStatus({ params, searchParams }: { params: 
   }[b.status];
   const live = ["pending", "new", "confirmed", "on_the_way", "arrived"].includes(b.status);
   const mobile = isMobile(b);
-  const where = mobile ? `${b.address}, ${b.postcode}` : SHOP.name;
+  const where = b.hotel_id ? `${b.address}, room ${b.room}` : mobile ? `${b.address}, ${b.postcode}` : SHOP.name;
   const onlyPreferred = !!b.preferred_barber && !b.allow_fallback;
   const quote = cancelQuote(b);
   const confirming = searchParams.cancel === "1" && quote !== null;

@@ -37,6 +37,13 @@ export default function Terms() {
         . Please make sure the barber can get in and has somewhere to work. We text you when they set off and when they arrive.
       </p>
 
+      <div className="h3">Hotel bookings</div>
+      <p>
+        Partner hotels can book a cut in a guest&apos;s room through their own booking link. The concierge who books gets
+        our texts, and the hold goes on the card they pay with. Travel is charged as for home visits, or at a fixed rate
+        agreed with the hotel. The home visit rules below apply, and the barber reports to the hotel as the booking says.
+      </p>
+
       <div className="h3">Paying</div>
       <p>
         When you send a request we place a hold for the full price on your card. We only take the money when a barber
@@ -55,7 +62,7 @@ export default function Terms() {
       <div className="h3">Cancelling and lateness</div>
       <p>At the shop:</p>
       <ul className="rules">{RULES.map((r) => <li key={r}>{r}</li>)}</ul>
-      <p>Home visits:</p>
+      <p>Home and hotel visits:</p>
       <ul className="rules">{HOME_RULES.map((r) => <li key={r}>{r}</li>)}</ul>
       <p>
         Cancel from the link in your booking text or on your booking page. See the <a href="/refunds">refund policy</a> for

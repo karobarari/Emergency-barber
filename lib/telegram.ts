@@ -2,7 +2,7 @@ import "server-only";
 import { barbers, gbp, SHOP } from "./config";
 import { onlyPreferredButton } from "./preferred";
 import { fmtDay, fmtTime } from "./slots";
-import type { Booking } from "./supabase";
+import { db, type Booking } from "./supabase";
 import { isMobile, nextActions, noShowFrom, type VisitAction } from "./visit";
 
 const api = (method: string, body: unknown) =>
@@ -13,25 +13,35 @@ const api = (method: string, body: unknown) =>
   }).then((r) => r.json());
 
 /** Where the cut happens: open the shop, or drive to the customer (leaving the shop in time to arrive at the slot). */
-function whereLines(b: Booking) {
+/** The hotel's arrival notes, which live on the hotel so the concierge never has to repeat them. */
+type HotelNotes = { arrival_notes: string | null } | null;
+async function hotelNotes(b: Booking): Promise<HotelNotes> {
+  if (!b.hotel_id) return null;
+  const { data } = await db().from("hotels").select("arrival_notes").eq("id", b.hotel_id).maybeSingle();
+  return data;
+}
+
+function whereLines(b: Booking, hotel: HotelNotes) {
   if (!isMobile(b)) return [`Open ${SHOP.name}`];
   const leave = new Date(new Date(b.slot_at).getTime() - (b.drive_minutes ?? 0) * 60e3);
   const maps = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${b.address}, ${b.postcode}`)}`;
   return [
-    `🏠 ${b.address}, ${b.postcode}`,
+    `${b.hotel_id ? "🏨" : "🏠"} ${b.address}, ${b.postcode}`,
+    ...(b.hotel_id ? [`Room ${b.room} · guest ${b.guest_name}`, ...(hotel?.arrival_notes ? [`ℹ️ ${hotel.arrival_notes}`] : [])] : []),
     `🚗 ${b.drive_minutes} min / ${b.drive_miles} mi from the shop · leave by ${fmtTime(leave)}`,
     maps,
   ];
 }
 
-export function bookingText(b: Booking) {
+export function bookingText(b: Booking, hotel: HotelNotes = null) {
+  const kind = b.location_type === "hotel" ? "🏨 HOTEL VISIT" : b.location_type === "home" ? "🏠 HOME VISIT" : "💈 NEW LATE BOOKING";
   const lines = [
-    `${isMobile(b) ? "🏠 HOME VISIT" : "💈 NEW LATE BOOKING"} · ${fmtTime(b.slot_at)} (${fmtDay(b.slot_at)})`,
+    `${kind} · ${fmtTime(b.slot_at)} (${fmtDay(b.slot_at)})`,
     ...(b.preferred_barber ? [`🙋 Requested: ${b.preferred_barber}${b.allow_fallback ? "" : " only"}`] : []),
-    `${b.name} · ${b.phone}`,
+    b.hotel_id ? `Concierge ${b.booker_name} · ${b.phone}` : `${b.name} · ${b.phone}`,
     `${b.service_name} · ${b.status === "new" ? `${gbp(b.total)} held, charged when you accept` : gbp(b.total)}` +
       (b.distance_step ? ` (incl. ${gbp(b.distance_step)} travel)` : ""),
-    ...whereLines(b),
+    ...whereLines(b, hotel),
   ];
   if (b.status === "new" && b.preferred_barber && b.exclusive_until && b.allow_fallback) {
     lines.push(`🔒 ${b.preferred_barber} has until ${fmtTime(b.exclusive_until)}, then it opens to everyone`);
@@ -101,7 +111,7 @@ export async function sendBookingAlert(b: Booking): Promise<number | null> {
   }
   const res = await api("sendMessage", {
     chat_id: process.env.TELEGRAM_CHAT_ID,
-    text: bookingText(b),
+    text: bookingText(b, await hotelNotes(b)),
     reply_markup: keyboard(b),
   });
   // Telegram reports errors (bad chat id, bot removed from group) in the body, not as a thrown error.
@@ -115,7 +125,7 @@ export async function updateBookingAlert(b: Booking) {
   await api("editMessageText", {
     chat_id: process.env.TELEGRAM_CHAT_ID,
     message_id: b.telegram_message_id,
-    text: bookingText(b),
+    text: bookingText(b, await hotelNotes(b)),
     reply_markup: keyboard(b),
   });
 }
