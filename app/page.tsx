@@ -1,4 +1,4 @@
-import { LATE_FEE, mapsUrl, RULES, SERVICES, SHOP } from "@/lib/config";
+import { mapsUrl, PRICING, RULES, SERVICES, SHOP, SLOTS } from "@/lib/config";
 import BookingFlow from "./components/BookingFlow";
 
 export default function Home({ searchParams }: { searchParams: { cancelled?: string } }) {
@@ -9,7 +9,8 @@ export default function Home({ searchParams }: { searchParams: { cancelled?: str
       )}
       <BookingFlow
         services={SERVICES.map((s) => ({ ...s }))}
-        lateFee={LATE_FEE}
+        fees={PRICING.advanceFees.map(({ minHoursAhead, fee }) => ({ minHoursAhead, fee }))}
+        advanceDays={SLOTS.advanceDays}
         shop={SHOP.name}
         address={SHOP.address}
         maps={mapsUrl()}

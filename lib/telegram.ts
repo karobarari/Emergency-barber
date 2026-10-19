@@ -17,6 +17,10 @@ export function bookingText(b: Booking) {
     `${b.service_name} · ${b.status === "new" ? `${gbp(b.total)} held, charged when you accept` : gbp(b.total)}`,
     `Open ${SHOP.name}`,
   ];
+  // Alerts stay in the group for days, so say the day rather than "tonight".
+  if (b.status === "new" && b.release_at) {
+    lines.push(`⏳ Take it by ${fmtTime(b.release_at)} (${fmtDay(b.release_at)}) or the customer's hold is released`);
+  }
   if (b.status === "confirmed") lines.push(`\n✅ ${b.barber} is taking this · card charged`);
   if (b.status === "refunded") lines.push(`\n↩️ Nobody free, hold released`);
   if (b.status === "done") lines.push(`\n✔️ Done (${b.barber})`);
@@ -65,13 +69,15 @@ export async function updateBookingAlert(b: Booking) {
  * Nudges the group about a booking nobody has taken. Replies to the original alert so the buttons are one tap away;
  * if that alert never went out, sends a fresh one and returns its id.
  */
-export async function sendReminder(b: Booking, refundInMins: number): Promise<number | null> {
+export async function sendReminder(b: Booking, releaseAt: Date, now = new Date()): Promise<number | null> {
   if (!process.env.TELEGRAM_BOT_TOKEN) return null;
   if (!b.telegram_message_id) return sendBookingAlert(b);
+  const minsLeft = Math.ceil((releaseAt.getTime() - now.getTime()) / 60e3);
+  const when = minsLeft <= 60 ? `in ${minsLeft} min` : `at ${fmtTime(releaseAt)} (${fmtDay(releaseAt)})`;
   const res = await api("sendMessage", {
     chat_id: process.env.TELEGRAM_CHAT_ID,
     reply_to_message_id: b.telegram_message_id,
-    text: `⏰ Still needs a barber: ${fmtTime(b.slot_at)} · ${b.service_name}. Tap your name above, or the customer's hold is released automatically in ${refundInMins} min.`,
+    text: `⏰ Still needs a barber: ${fmtTime(b.slot_at)} (${fmtDay(b.slot_at)}) · ${b.service_name}. Tap your name above, or the customer's hold is released automatically ${when}.`,
   });
   if (!res?.ok) throw new Error(`Telegram reminder failed for booking ${b.id}: ${res?.description}`);
   return null;

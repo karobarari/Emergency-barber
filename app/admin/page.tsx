@@ -39,7 +39,7 @@ export default async function Admin() {
   const rows = (data || []) as Booking[];
   const live = rows.filter((b) => b.status === "new" || b.status === "confirmed");
   const past = rows.filter((b) => b.status === "done" || b.status === "refunded" || b.status === "cancelled");
-  // Unclaimed bookings are only held, not charged. Cancellations keep whatever wasn't refunded (the late fee, or everything inside 30 min).
+  // Unclaimed bookings are only held, not charged. Cancellations keep whatever wasn't refunded (the booking fee, or everything inside 30 min).
   const taken = rows.filter((b) => b.status !== "refunded" && b.status !== "new").reduce((a, b) => a + b.total - (b.refund_amount ?? 0), 0);
 
   const card = (b: Booking) => (

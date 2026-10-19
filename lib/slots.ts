@@ -24,27 +24,54 @@ export function londonTime(y: number, m: number, d: number, h: number, min: numb
 
 const hm = (s: string) => s.split(":").map(Number) as [number, number];
 
+type Day = { y: number; m: number; d: number };
+
+/** A calendar date `n` days after `day` (rolls over months and years). */
+function addDays({ y, m, d }: Day, n: number): Day {
+  const t = new Date(Date.UTC(y, m - 1, d + n));
+  return { y: t.getUTCFullYear(), m: t.getUTCMonth() + 1, d: t.getUTCDate() };
+}
+
+export const dayKey = ({ y, m, d }: Day) => `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+
+/** The evening a time belongs to. The early hours (before 06:00) count as the previous evening. */
+export const nightOf = (t: Date): Day => londonParts(new Date(t.getTime() - 6 * 3600e3));
+
 /**
- * Bookable slots for tonight's out-of-hours window: from OPEN_FROM up to LAST_SLOT
- * (00:00 = midnight), at least SLOTS.noticeMins from now, minus taken slots.
+ * The evenings a customer can book: today plus SLOTS.advanceDays. Just after midnight this also includes last night,
+ * in case LAST_SLOT runs past midnight.
  */
-export function availableSlots(now: Date, taken: Date[] = []): Date[] {
-  // Treat the early hours (before 06:00) as belonging to the previous evening.
-  const ref = londonParts(new Date(now.getTime() - 6 * 3600e3));
+export function bookingNights(now: Date): Day[] {
+  const first = nightOf(now);
+  const last = dayKey(addDays(londonParts(now), SLOTS.advanceDays));
+  const out: Day[] = [];
+  for (let day = first; dayKey(day) <= last; day = addDays(day, 1)) out.push(day);
+  return out;
+}
+
+/** Opening time and last slot for one evening: from OPEN_FROM up to LAST_SLOT (00:00 = midnight). */
+function nightWindow(day: Day) {
   const [oh, om] = hm(SLOTS.openFrom);
   const [lh, lm] = hm(SLOTS.lastSlot);
-  const start = londonTime(ref.y, ref.m, ref.d, oh, om);
   // A last slot at or before the opening time means "after midnight".
-  const lastSameDay = lh * 60 + lm > oh * 60 + om;
-  const endDay = new Date(Date.UTC(ref.y, ref.m - 1, ref.d + (lastSameDay ? 0 : 1)));
-  const end = londonTime(endDay.getUTCFullYear(), endDay.getUTCMonth() + 1, endDay.getUTCDate(), lh, lm);
+  const endDay = lh * 60 + lm > oh * 60 + om ? day : addDays(day, 1);
+  return {
+    start: londonTime(day.y, day.m, day.d, oh, om),
+    end: londonTime(endDay.y, endDay.m, endDay.d, lh, lm),
+  };
+}
 
+/** Bookable slots across every evening customers can book, at least SLOTS.noticeMins from now, minus taken slots. */
+export function availableSlots(now: Date, taken: Date[] = []): Date[] {
   const step = SLOTS.stepMins * 60e3;
   const earliest = Math.ceil((now.getTime() + SLOTS.noticeMins * 60e3) / step) * step;
   const takenSet = new Set(taken.map((t) => t.getTime()));
   const out: Date[] = [];
-  for (let t = Math.max(start.getTime(), earliest); t <= end.getTime(); t += step) {
-    if (!takenSet.has(t)) out.push(new Date(t));
+  for (const night of bookingNights(now)) {
+    const { start, end } = nightWindow(night);
+    for (let t = Math.max(start.getTime(), earliest); t <= end.getTime(); t += step) {
+      if (!takenSet.has(t)) out.push(new Date(t));
+    }
   }
   return out;
 }
@@ -54,3 +81,13 @@ export const fmtTime = (d: Date | string) =>
 
 export const fmtDay = (d: Date | string) =>
   new Date(d).toLocaleDateString("en-GB", { timeZone: TZ, weekday: "short", day: "numeric", month: "short" });
+
+/** "21:00 tonight", "19:30 tomorrow" or "20:15 Wed 21 Oct", relative to `now`. For texts and pages, not Telegram alerts. */
+export function fmtWhen(d: Date | string, now = new Date()) {
+  const t = new Date(d);
+  const day = dayKey(londonParts(t));
+  const today = londonParts(now);
+  if (day === dayKey(today)) return `${fmtTime(t)} ${londonParts(t).h >= 17 ? "tonight" : "today"}`;
+  if (day === dayKey(addDays(today, 1))) return `${fmtTime(t)} tomorrow`;
+  return `${fmtTime(t)} ${fmtDay(t)}`;
+}

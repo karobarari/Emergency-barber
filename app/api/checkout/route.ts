@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { CANCEL_CUTOFF_MINS, gbp, LATE_FEE, LATE_GRACE_MINS, OPERATOR, SERVICES, SHOP } from "@/lib/config";
+import { CANCEL_CUTOFF_MINS, gbp, LATE_GRACE_MINS, OPERATOR, SERVICES, SHOP } from "@/lib/config";
+import { quote } from "@/lib/pricing";
 import { fmtDay, fmtTime } from "@/lib/slots";
 import { ukMobile } from "@/lib/sms";
 import { stripe } from "@/lib/stripe";
@@ -23,19 +24,31 @@ export async function POST(req: Request) {
   if (body.agreed !== true) return bad("Tick the box to agree to the cancellation and lateness rules.");
 
   const slot = new Date(body.slot);
-  const free = await freeSlots();
+  const now = new Date();
+  const free = await freeSlots(now);
   if (!free.some((s) => s.getTime() === slot.getTime())) {
     return bad("That time has just gone. Pick another slot.");
   }
 
-  const total = service.price + LATE_FEE;
+  // Priced here, never from the browser, and locked into the card hold.
+  const q = quote({ serviceId: service.id, locationType: "shop", slotAt: slot, now });
+  // The booking fee goes up as the slot gets closer. If it has since the customer saw it, show them the new total first.
+  if (body.expectedTotal !== q.total) {
+    return NextResponse.json(
+      {
+        error: `The booking fee for this time is now ${gbp(q.advanceFee)} (${q.tierLabel}), so the total is ${gbp(q.total)}. Check it and request again.`,
+        quote: { fee: q.advanceFee, tierLabel: q.tierLabel },
+      },
+      { status: 409 },
+    );
+  }
   const { data: booking, error } = await db()
     .from("bookings")
     .insert({
       name, phone,
       service_id: service.id, service_name: service.name,
       slot_at: slot.toISOString(),
-      service_price: service.price, late_fee: LATE_FEE, total,
+      service_price: q.servicePrice, advance_fee: q.advanceFee, price_tier: q.tier, total: q.total,
       status: "pending",
       terms_accepted_at: new Date().toISOString(),
     })
@@ -58,8 +71,8 @@ export async function POST(req: Request) {
     payment_method_types: ["card"],
     submit_type: "book",
     line_items: [
-      { quantity: 1, price_data: { currency: "gbp", unit_amount: service.price, product_data: { name: `${service.name} at ${fmtTime(slot)}` } } },
-      { quantity: 1, price_data: { currency: "gbp", unit_amount: LATE_FEE, product_data: { name: "Late booking fee (shop opened out of hours)" } } },
+      { quantity: 1, price_data: { currency: "gbp", unit_amount: q.servicePrice, product_data: { name: `${service.name} at ${fmtTime(slot)} on ${fmtDay(slot)}` } } },
+      { quantity: 1, price_data: { currency: "gbp", unit_amount: q.advanceFee, product_data: { name: `Booking fee (${q.tierLabel})` } } },
     ],
     metadata: { booking_id: booking.id },
     payment_intent_data: {
@@ -73,7 +86,7 @@ export async function POST(req: Request) {
     expires_at: Math.floor(Date.now() / 1000) + 30 * 60, // Stripe's minimum; frees the slot if abandoned
     custom_text: {
       submit: {
-        message: `We hold this on your card and only charge it when a barber accepts. If nobody can, the hold is released. Cancel free until a barber confirms. After that the ${gbp(LATE_FEE)} late fee is kept, nothing is refunded within ${CANCEL_CUTOFF_MINS} min, and the barber may leave if you are over ${LATE_GRACE_MINS} min late.`,
+        message: `We hold this on your card and only charge it when a barber accepts. If nobody can, the hold is released. Cancel free until a barber confirms. After that the ${gbp(q.advanceFee)} booking fee is kept, nothing is refunded within ${CANCEL_CUTOFF_MINS} min, and the barber may leave if you are over ${LATE_GRACE_MINS} min late.`,
       },
     },
     success_url: `${site}/booking/${booking.id}`,

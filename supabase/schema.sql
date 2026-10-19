@@ -10,7 +10,8 @@ create table if not exists bookings (
   service_name        text not null,
   slot_at             timestamptz not null,
   service_price       int  not null,          -- pence
-  late_fee            int  not null,          -- pence
+  advance_fee         int  not null,          -- pence, booking fee by how far ahead it was booked
+  price_tier          text not null check (price_tier in ('12h','6h','standard')),
   total               int  not null,          -- pence
   status              text not null default 'pending'
                       check (status in ('pending','new','confirmed','done','refunded','expired','cancelled')),
@@ -21,6 +22,7 @@ create table if not exists bookings (
   refund_amount       int,                    -- pence, set when the customer cancels
   terms_accepted_at   timestamptz,            -- when they ticked the rules box at payment
   paid_at             timestamptz,            -- when the card hold was placed; starts the no-barber clock
+  release_at          timestamptz,            -- when the cron releases the hold if no barber has taken it
   reminded_at         timestamptz,            -- when the group was re-pinged about an unclaimed booking
   slot_reminded_at    timestamptz             -- when the customer got the 30-min reminder text
 );

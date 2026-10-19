@@ -1,5 +1,6 @@
 import "server-only";
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
+import type { PriceTier } from "./config";
 
 export type Status = "pending" | "new" | "confirmed" | "done" | "refunded" | "expired" | "cancelled";
 
@@ -12,7 +13,8 @@ export type Booking = {
   service_name: string;
   slot_at: string;
   service_price: number;
-  late_fee: number;
+  advance_fee: number; // booking fee, by how far ahead it was booked
+  price_tier: PriceTier;
   total: number;
   status: Status;
   barber: string | null;
@@ -22,6 +24,7 @@ export type Booking = {
   refund_amount: number | null; // pence, set when the customer cancels
   terms_accepted_at: string | null; // when they ticked the rules box at payment
   paid_at: string | null; // when the card hold was placed; starts the no-barber clock
+  release_at: string | null; // when the hold is released if no barber has taken it
   reminded_at: string | null;
   slot_reminded_at: string | null;
 };

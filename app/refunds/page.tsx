@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { CANCEL_CUTOFF_MINS, gbp, LATE_FEE, LATE_GRACE_MINS, OPERATOR } from "@/lib/config";
+import { CANCEL_CUTOFF_MINS, LATE_GRACE_MINS, OPERATOR } from "@/lib/config";
 
 export const metadata: Metadata = { title: `Refund policy · ${OPERATOR.trading}` };
 
@@ -7,22 +7,22 @@ export default function Refunds() {
   return (
     <main className="wrap legal">
       <h2>Refund policy</h2>
-      <p className="lead">Last updated 17 October 2026</p>
+      <p className="lead">Last updated 19 October 2026</p>
       <p>We only hold the money on your card when you book. It&apos;s charged when a barber accepts your booking.</p>
 
       <div className="sum">
         <div className="row"><span>No barber free</span><span>Not charged, hold released</span></div>
         <div className="row"><span>You cancel before a barber confirms</span><span>Not charged, hold released</span></div>
-        <div className="row"><span>You cancel after confirmation, {CANCEL_CUTOFF_MINS}+ min before</span><span>Service price back, {gbp(LATE_FEE)} fee kept</span></div>
+        <div className="row"><span>You cancel after confirmation, {CANCEL_CUTOFF_MINS}+ min before</span><span>Service price back, booking fee kept</span></div>
         <div className="row"><span>You cancel within {CANCEL_CUTOFF_MINS} min</span><span>No refund</span></div>
         <div className="row"><span>You arrive over {LATE_GRACE_MINS} min late and the barber has left</span><span>No refund</span></div>
         <div className="row"><span>We cancel after confirming</span><span>Full refund</span></div>
       </div>
 
-      <div className="h3">Why the late fee is kept</div>
+      <div className="h3">Why the booking fee is kept</div>
       <p>
-        Once a barber confirms, they travel to open the shop for you. The {gbp(LATE_FEE)} late booking fee covers that, so it
-        isn&apos;t refunded if you cancel after confirmation.
+        Once a barber confirms, they keep the evening free and travel to open the shop for you. The booking fee covers that,
+        so it isn&apos;t refunded if you cancel after confirmation.
       </p>
 
       <div className="h3">How to cancel</div>

@@ -2,7 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import AutoRefresh from "@/app/components/AutoRefresh";
 import { cancel, cancelQuote } from "@/lib/bookings";
 import { gbp, mapsUrl, RULES, SHOP } from "@/lib/config";
-import { fmtTime } from "@/lib/slots";
+import { fmtWhen } from "@/lib/slots";
 import { db, type Booking } from "@/lib/supabase";
 import { reportError } from "@/lib/telegram";
 
@@ -41,7 +41,7 @@ export default async function BookingStatus({ params, searchParams }: { params: 
     return (
       <main className="wrap">
         <h2>Booking cancelled</h2>
-        <p className="lead">{b.service_name} · <span className="price">{fmtTime(b.slot_at)}</span></p>
+        <p className="lead">{b.service_name} · <span className="price">{fmtWhen(b.slot_at)}</span></p>
         <div className="sum"><div className="row"><span>
           {/* No barber means it was cancelled before anyone accepted, so the card was never charged. */}
           {!b.barber ? `You weren't charged. We've released the ${gbp(b.total)} hold on your card; banks usually drop it within a few days.`
@@ -57,7 +57,7 @@ export default async function BookingStatus({ params, searchParams }: { params: 
       {live && !confirming && <AutoRefresh seconds={15} />}
       <h2>{b.status === "refunded" ? "No barber free" : stage > 0 ? "You're booked in" : "Request sent"}</h2>
       <p className="lead">
-        {b.service_name} · <span className="price">{fmtTime(b.slot_at)}</span> · {gbp(b.total)}{" "}
+        {b.service_name} · <span className="price">{fmtWhen(b.slot_at)}</span> · {gbp(b.total)}{" "}
         {b.status === "refunded" ? "not charged" : b.status === "pending" ? "processing" : stage > 0 ? "paid" : "held on your card"}
       </p>
 
@@ -68,9 +68,11 @@ export default async function BookingStatus({ params, searchParams }: { params: 
           <div className={`st ${stage > 0 ? "done" : "now"}`}><span className="dot" />
             <div><b>{b.status === "pending" ? "Checking your card" : "Request sent to the barbers"}</b><small>{stage > 0 ? "Accepted" : "You're only charged if a barber accepts"}</small></div></div>
           <div className={`st ${stage > 1 ? "done" : stage === 1 ? "now" : ""}`}><span className="dot" />
-            <div><b>Barber confirmed</b><small>{b.barber ? `${b.barber} is opening the shop for you` : "We'll text you as soon as it's confirmed"}</small></div></div>
+            <div><b>Barber confirmed</b><small>{b.barber ? `${b.barber} is opening the shop for you`
+              : b.release_at ? `We'll confirm your barber by ${fmtWhen(b.release_at)} and text you`
+              : "We'll text you as soon as it's confirmed"}</small></div></div>
           <div className={`st ${stage >= 2 ? "done" : ""}`}><span className="dot" />
-            <div><b>In the chair</b><small>{fmtTime(b.slot_at)} at {SHOP.name}</small></div></div>
+            <div><b>In the chair</b><small>{fmtWhen(b.slot_at)} at {SHOP.name}</small></div></div>
         </div>
       )}
 
@@ -80,7 +82,7 @@ export default async function BookingStatus({ params, searchParams }: { params: 
           {searchParams.failed === "1" && <p className="err">We couldn&apos;t cancel just now. Try again, or reply to our text.</p>}
           <div className="row"><span>
             {quote === b.total ? `No barber has confirmed yet, so you won't be charged. We'll release the ${gbp(quote)} hold on your card.`
-              : quote > 0 ? `${b.barber} has already confirmed, so we refund the ${gbp(quote)} service but keep the ${gbp(b.late_fee)} late booking fee.`
+              : quote > 0 ? `${b.barber} has already confirmed, so we refund the ${gbp(quote)} service but keep the ${gbp(b.advance_fee)} booking fee.`
               : "Your slot is less than 30 minutes away, so no refund is due. Cancelling still lets the barber know not to open up."}
           </span></div>
           <form action={cancelBooking}>

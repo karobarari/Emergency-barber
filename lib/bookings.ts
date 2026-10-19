@@ -1,6 +1,7 @@
 import "server-only";
-import { CANCEL_CUTOFF_MINS, gbp, LATE_GRACE_MINS, mapsUrl, NO_BARBER, SHOP, SLOT_REMINDER_MINS } from "./config";
-import { fmtTime } from "./slots";
+import { CANCEL_CUTOFF_MINS, DISPATCH, gbp, LATE_GRACE_MINS, mapsUrl, SHOP, SLOT_REMINDER_MINS } from "./config";
+import { releaseAt, remindAt } from "./dispatch";
+import { fmtTime, fmtWhen } from "./slots";
 import { sendSms } from "./sms";
 import { stripe } from "./stripe";
 import { db, type Booking, type Status } from "./supabase";
@@ -41,8 +42,19 @@ async function giveBack(paymentIntent: string, key: string, amount?: number): Pr
 
 /** Called by the Stripe webhook once the card hold is in place. Nothing is charged until a barber accepts. */
 export async function markHeld(id: string, paymentIntent: string | null) {
-  const b = await transition(id, ["pending"], { status: "new", payment_intent: paymentIntent, paid_at: new Date().toISOString() });
+  const { data: pending, error } = await db().from("bookings").select("slot_at, price_tier").eq("id", id).maybeSingle();
+  if (error) throw new Error(`Booking ${id} lookup failed: ${error.message}`);
+  if (!pending) return;
+  const paidAt = new Date();
+  const b = await transition(id, ["pending"], {
+    status: "new",
+    payment_intent: paymentIntent,
+    paid_at: paidAt.toISOString(),
+    // Fixed now, so the cron, the status page and Telegram all agree on when an unclaimed hold is released.
+    release_at: releaseAt(paidAt, new Date(pending.slot_at), pending.price_tier).toISOString(),
+  });
   if (!b) return;
+  const ahead = b.price_tier !== "standard";
   // The hold is already placed, so a Stripe retry would skip these. Log failures instead of throwing.
   try {
     const msgId = await sendBookingAlert(b);
@@ -53,8 +65,9 @@ export async function markHeld(id: string, paymentIntent: string | null) {
   try {
     await sendSms(
       b.phone,
-      `${SHOP.name}: request sent for ${fmtTime(b.slot_at)}. We've held ${gbp(b.total)} on your card but only charge it when a barber accepts. ` +
-        `We'll text you as soon as one does. Cancel free until then; after that the ${gbp(b.late_fee)} late fee is kept, and nothing back within ${CANCEL_CUTOFF_MINS} min. ` +
+      `${SHOP.name}: request sent for ${fmtWhen(b.slot_at)}. We've held ${gbp(b.total)} on your card but only charge it when a barber accepts. ` +
+        `We'll text you as soon as one does${ahead ? `, by ${fmtWhen(b.release_at!)} at the latest` : ""}. ` +
+        `Cancel free until then; after that the ${gbp(b.advance_fee)} booking fee is kept, and nothing back within ${CANCEL_CUTOFF_MINS} min. ` +
         `Track or cancel: ${process.env.SITE_URL}/booking/${b.id}`,
     );
   } catch (e) {
@@ -81,7 +94,7 @@ export async function assign(id: string, barber: string) {
   await updateBookingAlert(b);
   await sendSms(
     b.phone,
-    `${barber} will open ${SHOP.name} for you at ${fmtTime(b.slot_at)}. We've now charged the ${gbp(b.total)} held on your card. ` +
+    `${barber} will open ${SHOP.name} for you at ${fmtWhen(b.slot_at)}. We've now charged the ${gbp(b.total)} held on your card. ` +
       `${SHOP.address}. Directions: ${mapsUrl()} ` +
       `Running late? Reply to let us know. After ${LATE_GRACE_MINS} min the barber may leave and nothing is refunded.`,
   );
@@ -104,7 +117,7 @@ export async function refund(id: string) {
   await updateBookingAlert(b);
   await sendSms(
     b.phone,
-    `${SHOP.name}: sorry, no barber is free for ${fmtTime(b.slot_at)}. ` +
+    `${SHOP.name}: sorry, no barber is free for ${fmtWhen(b.slot_at)}. ` +
       (how === "released"
         ? `You haven't been charged. We've released the ${gbp(b.total)} hold on your card.`
         : `We've refunded ${gbp(b.total)} to your card.`),
@@ -114,7 +127,7 @@ export async function refund(id: string) {
 
 /**
  * What a customer gets back if they cancel now, or null if they can't cancel.
- * Before a barber confirms: everything (the hold is released). Confirmed with 30+ min to go: the service price, the late fee is kept
+ * Before a barber confirms: everything (the hold is released). Confirmed with 30+ min to go: the service price, the booking fee is kept
  * because a barber has committed to opening up. Under 30 min: nothing.
  */
 export function cancelQuote(b: Booking, now = Date.now()): number | null {
@@ -158,7 +171,7 @@ export async function cancel(id: string, expected: number): Promise<CancelResult
   }
   await sendSms(
     b.phone,
-    `${SHOP.name}: your ${fmtTime(b.slot_at)} booking is cancelled. ` +
+    `${SHOP.name}: your booking for ${fmtWhen(b.slot_at)} is cancelled. ` +
       (quote === 0 ? "No refund is due as it was within 30 minutes."
         : how === "released" ? `You haven't been charged. We've released the ${gbp(quote)} hold on your card.`
         : `${gbp(quote)} is on its way back to your card.`),
@@ -174,20 +187,23 @@ export async function complete(id: string) {
 
 /**
  * Runs every couple of minutes. Re-pings the group once about bookings nobody has taken, then releases the card hold
- * (the same as tapping "Nobody free") so a customer is never left waiting on a barber who isn't coming.
+ * at `release_at` (the same as tapping "Nobody free") so a customer is never left waiting on a barber who isn't coming.
+ * Timings depend on how far ahead it was booked (see lib/dispatch.ts).
  */
 export async function chaseUnclaimed(now = Date.now()) {
-  const since = new Date(now - NO_BARBER.remindMins * 60e3).toISOString();
+  // Nothing is due before the shortest re-ping time.
+  const since = new Date(now - DISPATCH.soon.remindMins * 60e3).toISOString();
   const { data, error } = await db().from("bookings").select("*").eq("status", "new").lt("paid_at", since);
   if (error) throw new Error(`Unclaimed bookings query failed: ${error.message}`);
 
   const result = { reminded: 0, refunded: 0, failed: 0 };
   for (const b of (data || []) as Booking[]) {
-    const waitedMins = (now - Date.parse(b.paid_at!)) / 60e3;
+    const paidAt = new Date(b.paid_at!);
+    const release = b.release_at ? new Date(b.release_at) : releaseAt(paidAt, new Date(b.slot_at), b.price_tier);
     try {
-      if (waitedMins >= NO_BARBER.refundMins) {
+      if (now >= release.getTime()) {
         if (await refund(b.id)) result.refunded++;
-      } else if (!b.reminded_at) {
+      } else if (!b.reminded_at && now >= remindAt(paidAt, b.price_tier).getTime()) {
         // Claim the reminder first so two overlapping runs can't both send it.
         const { data: claimed } = await db()
           .from("bookings")
@@ -199,7 +215,7 @@ export async function chaseUnclaimed(now = Date.now()) {
           .maybeSingle();
         if (!claimed) continue;
         try {
-          const msgId = await sendReminder(b, Math.ceil(NO_BARBER.refundMins - waitedMins));
+          const msgId = await sendReminder(b, release, new Date(now));
           if (msgId) await db().from("bookings").update({ telegram_message_id: msgId }).eq("id", b.id);
           result.reminded++;
         } catch (e) {
