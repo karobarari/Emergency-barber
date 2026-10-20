@@ -428,6 +428,9 @@ Do one phase per Claude Code session. Each ends with tests passing, a deploy to 
 - Mobile cancellation and no-show rules (§10.2, §10.3).
 
 ### Phase 5: Live ETA
+
+> **On hold (20 Oct 2026).** Not built. Mobile ETAs use the Hale estimate from §5.3 step 1 until this is picked up again.
+
 - Private-message location request to the accepting barber, ETA recalculation and SMS (§5.3).
 
 ### Phase 6: Hotels
