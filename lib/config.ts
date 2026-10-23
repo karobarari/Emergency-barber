@@ -8,13 +8,11 @@ export const SHOP = {
 };
 
 /**
- * Home visits need the signed "phone given" cookie and drive times (OpenRouteService). Until both are set,
+ * Home visits need the phone check (Twilio Verify) and drive times (OpenRouteService). Until all three are set,
  * "At my place" shows as coming soon.
  */
-export const homeVisitsEnabled = () => !!(process.env.VERIFY_TOKEN_SECRET && process.env.ROUTING_API_KEY);
-
-/** Texting a code to prove the number (Twilio Verify). Without it, the customer's number is taken as typed. */
-export const phoneCheckEnabled = () => !!process.env.TWILIO_VERIFY_SERVICE_SID;
+export const homeVisitsEnabled = () =>
+  !!(process.env.TWILIO_VERIFY_SERVICE_SID && process.env.VERIFY_TOKEN_SECRET && process.env.ROUTING_API_KEY);
 
 /** Who runs the service, for the terms and privacy notice. */
 export const OPERATOR = {
