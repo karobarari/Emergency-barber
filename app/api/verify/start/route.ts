@@ -1,12 +1,12 @@
 import { NextResponse } from "next/server";
-import { homeVisitsEnabled } from "@/lib/config";
+import { homeVisitsEnabled, phoneCheckEnabled } from "@/lib/config";
 import { ukMobile } from "@/lib/sms";
 import { reportError } from "@/lib/telegram";
 import { sendCode } from "@/lib/verify";
 
 /** Texts a 6-digit code to the customer's mobile, so home visits can only be booked by whoever has the phone. */
 export async function POST(req: Request) {
-  if (!homeVisitsEnabled()) return NextResponse.json({ error: "Home visits aren't open yet." }, { status: 404 });
+  if (!homeVisitsEnabled() || !phoneCheckEnabled()) return NextResponse.json({ error: "Home visits aren't open yet." }, { status: 404 });
   const body = await req.json().catch(() => ({}));
   const phone = ukMobile(String(body.phone || ""));
   if (!phone) return NextResponse.json({ error: "Enter a UK mobile number, like 07700 900123." }, { status: 400 });

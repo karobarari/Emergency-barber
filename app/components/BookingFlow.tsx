@@ -10,6 +10,8 @@ type Hotel = { slug: string; name: string; travel: number; driveMinutes: number 
 type Props = {
   services: Service[]; fees: Fee[]; advanceDays: number; shop: string; address: string; maps: string;
   rules: string[]; homeRules: string[]; barbers: string[]; homeEnabled: boolean;
+  /** Text a code to prove the number before a home visit. Off until Twilio Verify is set up. */
+  phoneCheck?: boolean;
   /** Set on a hotel's partner link (/h/[slug]): no location step, and the concierge books for a guest. */
   hotel?: Hotel;
 };
@@ -39,7 +41,7 @@ const post = (url: string, body: unknown) =>
     .then(async (r) => ({ ok: r.ok, data: await r.json().catch(() => ({})) }))
     .catch(() => ({ ok: false, data: { error: "Something went wrong. Check your connection and try again." } }));
 
-export default function BookingFlow({ services, fees, advanceDays, shop, address, maps, rules, homeRules, barbers, homeEnabled, hotel }: Props) {
+export default function BookingFlow({ services, fees, advanceDays, shop, address, maps, rules, homeRules, barbers, homeEnabled, phoneCheck, hotel }: Props) {
   const [mode, setMode] = useState<Mode>(hotel ? "hotel" : "shop");
   const [at, setAt] = useState(0);
   const [serviceId, setServiceId] = useState<string | null>(null);
@@ -191,7 +193,7 @@ export default function BookingFlow({ services, fees, advanceDays, shop, address
   if (step === "phone") return (
     <>
       {head}
-      <h2>{locked ? "We can't come to you" : "Check your number"}</h2>
+      <h2>{locked ? "We can't come to you" : phoneCheck ? "Check your number" : "Your mobile number"}</h2>
       {locked ? (
         <>
           <p className="lead">We can&apos;t book a home visit for this number. You can still book a cut at {shop}.</p>
@@ -199,7 +201,7 @@ export default function BookingFlow({ services, fees, advanceDays, shop, address
         </>
       ) : (
         <>
-          <p className="lead">We&apos;ll text a code to check it&apos;s you.</p>
+          <p className="lead">{phoneCheck ? <>We&apos;ll text a code to check it&apos;s you.</> : "So your barber can reach you."}</p>
           <label className="f" htmlFor="ph">Mobile number</label>
           <input className="t" id="ph" type="tel" autoComplete="tel" placeholder="07700 900123" value={phone}
             onChange={(e) => { setPhone(e.target.value); setCodeSent(false); }} />
@@ -211,7 +213,9 @@ export default function BookingFlow({ services, fees, advanceDays, shop, address
             </>
           )}
           {error && <p className="err">{error}</p>}
-          {codeSent
+          {!phoneCheck
+            ? <button className="btn" disabled={busy || !phone.trim()} onClick={checkCode}>{busy ? "Checking…" : "Continue"}</button>
+            : codeSent
             ? <button className="btn" disabled={busy || code.length !== 6} onClick={checkCode}>{busy ? "Checking…" : "Check code"}</button>
             : <button className="btn" disabled={busy || !phone.trim()} onClick={sendCode}>{busy ? "Sending…" : "Text me a code"}</button>}
           {codeSent && <button className="back" onClick={sendCode} disabled={busy}>Send a new code</button>}

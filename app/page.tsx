@@ -1,4 +1,4 @@
-import { barbers, HOME_RULES, homeVisitsEnabled, mapsUrl, PRICING, RULES, SERVICES, SHOP, SLOTS } from "@/lib/config";
+import { barbers, HOME_RULES, homeVisitsEnabled, mapsUrl, phoneCheckEnabled, PRICING, RULES, SERVICES, SHOP, SLOTS } from "@/lib/config";
 import BookingFlow from "./components/BookingFlow";
 
 export default function Home({ searchParams }: { searchParams: { cancelled?: string } }) {
@@ -17,6 +17,7 @@ export default function Home({ searchParams }: { searchParams: { cancelled?: str
         rules={RULES}
         homeRules={HOME_RULES}
         homeEnabled={homeVisitsEnabled()}
+        phoneCheck={phoneCheckEnabled()}
         barbers={barbers()}
       />
     </main>
