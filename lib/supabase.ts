@@ -13,7 +13,7 @@ export type Customer = {
   completed_shop_visits: number;
   last_barber: string | null;
   home_allowed: boolean;
-  blocked: boolean; // overrides home_allowed
+  blocked: boolean; // no home visits for this number
   notes: string | null; // private, admin only
   created_at: string;
   updated_at: string;

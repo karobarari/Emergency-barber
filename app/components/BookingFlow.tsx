@@ -56,7 +56,7 @@ export default function BookingFlow({ services, fees, advanceDays, shop, address
   // Home visits
   const [codeSent, setCodeSent] = useState(false);
   const [code, setCode] = useState("");
-  const [locked, setLocked] = useState(false); // verified, but home visits aren't unlocked for this number
+  const [locked, setLocked] = useState(false); // verified, but this number is blocked from home visits
   const [street, setStreet] = useState("");
   const [postcode, setPostcode] = useState("");
   const [area, setArea] = useState<Area | null>(null);
@@ -180,7 +180,7 @@ export default function BookingFlow({ services, fees, advanceDays, shop, address
         <button className="opt" aria-pressed={mode === "home"} disabled={!homeEnabled} onClick={() => setMode("home")}>
           <span>
             <b>At my place</b>
-            <small>{homeEnabled ? "Your home or office, for customers who've had a cut at the shop" : "Coming soon, for customers who've had a cut at the shop"}</small>
+            <small>{homeEnabled ? "Your home or office" : "Coming soon"}</small>
           </span>
         </button>
       </div>
@@ -191,15 +191,15 @@ export default function BookingFlow({ services, fees, advanceDays, shop, address
   if (step === "phone") return (
     <>
       {head}
-      <h2>{locked ? "Home visits aren't unlocked yet" : "Check your number"}</h2>
+      <h2>{locked ? "We can't come to you" : "Check your number"}</h2>
       {locked ? (
         <>
-          <p className="lead">Home visits unlock after your first cut at {shop}. Book one at the shop, and next time we can come to you.</p>
+          <p className="lead">We can&apos;t book a home visit for this number. You can still book a cut at {shop}.</p>
           <button className="btn" onClick={toShop}>Book at the shop</button>
         </>
       ) : (
         <>
-          <p className="lead">Home visits are for customers who&apos;ve had a cut with us. We&apos;ll text a code to check it&apos;s you.</p>
+          <p className="lead">We&apos;ll text a code to check it&apos;s you.</p>
           <label className="f" htmlFor="ph">Mobile number</label>
           <input className="t" id="ph" type="tel" autoComplete="tel" placeholder="07700 900123" value={phone}
             onChange={(e) => { setPhone(e.target.value); setCodeSent(false); }} />

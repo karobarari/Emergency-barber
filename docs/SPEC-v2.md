@@ -206,19 +206,19 @@ create table customers (
 ```
 
 - When a **shop** booking moves to `done`: upsert the customer, `completed_shop_visits += 1`, set `home_allowed = true`.
-- `blocked = true` overrides everything: no home visits for that number.
-- `/admin` can toggle `home_allowed` and `blocked` and edit `notes`.
+- Home visits are open to everyone with a verified number (opened up 2026-10-23); `home_allowed` is no longer checked.
+- `blocked = true`: no home visits for that number.
+- `/admin` can toggle `blocked` and edit `notes`.
 
 ### 6.2 Home flow gate
 
 1. Customer chooses "At my place".
 2. Enter mobile → send a 6-digit code with **Twilio Verify** (env `TWILIO_VERIFY_SERVICE_SID`). This stops anyone using a regular's number.
 3. After a correct code, look up `customers`:
-   - `home_allowed && !blocked` → continue to address.
-   - otherwise → show "Home visits unlock after your first cut at FadeMasters Hale" with a button to the shop flow.
+   - not `blocked` (including numbers we've never seen) → continue to address.
+   - blocked → say we can't book a home visit for this number, with a button to the shop flow.
 4. Save a short-lived signed token (cookie, 30 min) proving the phone was verified. `/api/checkout` must check it for `home` bookings, never trust the client.
 
-Keep "At my place" visible to everyone, so first-timers see what they can unlock.
 
 ### 6.3 Making sure "done" happens
 
@@ -412,7 +412,7 @@ Do one phase per Claude Code session. Each ends with tests passing, a deploy to 
 ### Phase 3a: Customers table, Done and No-show for shop
 - `customers` table, upsert on `done` (§6.1). Set `customers.last_barber` on `done`.
 - Telegram **Done** and **No-show** buttons for shop bookings, plus the cron nudge (§6.3).
-- `/admin`: customer list with `home_allowed`, `blocked`, `notes`.
+- `/admin`: customer list with `blocked`, `notes`.
 
 ### Phase 3b: Preferred barber
 - Preferred barber step after the time step (§3.1).

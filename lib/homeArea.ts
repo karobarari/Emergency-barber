@@ -11,14 +11,14 @@ export type HomeArea =
 
 /**
  * Everything a home booking needs before it can be priced, checked on the server: home visits are on, the browser
- * verified the phone, that customer has unlocked home visits, and the postcode is real and within 13 miles.
+ * verified the phone, that number isn't blocked, and the postcode is real and within 13 miles.
  */
 export async function homeArea(postcodeInput: string): Promise<HomeArea> {
   if (!homeVisitsEnabled()) return { ok: false, status: 404, error: "Home visits aren't open yet." };
   const phone = verifiedPhone();
   if (!phone) return { ok: false, status: 401, error: "Your number needs checking again. Go back and enter your mobile." };
   if (!homeAllowed(await getCustomer(phone))) {
-    return { ok: false, status: 403, error: "Home visits unlock after your first cut at the shop." };
+    return { ok: false, status: 403, error: "We can't book a home visit for this number. You can still book at the shop." };
   }
   let drive;
   try {

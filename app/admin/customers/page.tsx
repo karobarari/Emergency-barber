@@ -12,7 +12,6 @@ async function save(form: FormData) {
   const { error } = await db()
     .from("customers")
     .update({
-      home_allowed: form.get("home_allowed") === "on",
       blocked: form.get("blocked") === "on",
       notes: notes || null,
       updated_at: new Date().toISOString(),
@@ -35,7 +34,7 @@ export default async function Customers({ searchParams }: { searchParams: { q?: 
     <main className="wrap">
       <h2>Customers</h2>
       <p className="note"><a href="/admin">Back to dispatch</a></p>
-      <p className="lead">Added when a shop cut is marked done. A finished shop visit unlocks home visits; blocked overrides that.</p>
+      <p className="lead">Added when a shop cut is marked done. Anyone can book a home visit unless blocked here.</p>
       <form>
         <input className="t" name="q" defaultValue={q} placeholder="Search name or number" aria-label="Search customers" />
       </form>
@@ -46,13 +45,12 @@ export default async function Customers({ searchParams }: { searchParams: { q?: 
           <input type="hidden" name="phone" value={c.phone} />
           <div className="ctop">
             <span className="when">{c.name || "No name"}</span>
-            {c.blocked ? <span className="pill off">Blocked</span> : c.home_allowed && <span className="pill done">Home OK</span>}
+            {c.blocked && <span className="pill off">Blocked</span>}
           </div>
           <div className="cmeta">
             {c.phone} · {c.completed_shop_visits} shop {c.completed_shop_visits === 1 ? "visit" : "visits"}
             {c.last_barber ? ` · last with ${c.last_barber}` : ""} · since {fmtDay(c.created_at)}
           </div>
-          <label className="agree"><input type="checkbox" name="home_allowed" defaultChecked={c.home_allowed} /> Home visits allowed</label>
           <label className="agree"><input type="checkbox" name="blocked" defaultChecked={c.blocked} /> Blocked</label>
           <label className="f" htmlFor={`notes-${c.phone}`}>Notes (only you see these)</label>
           <textarea className="t" id={`notes-${c.phone}`} name="notes" rows={2} defaultValue={c.notes ?? ""} />

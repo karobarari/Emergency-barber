@@ -7,7 +7,7 @@ import { makeToken, VERIFIED_COOKIE, VERIFIED_MINS } from "@/lib/verifyToken";
 
 /**
  * Checks the code. If it's right, the browser gets a signed cookie proving the number for 30 minutes, and we say
- * whether that number has unlocked home visits (a finished shop cut).
+ * whether that number can book home visits (anyone who isn't blocked).
  */
 export async function POST(req: Request) {
   if (!homeVisitsEnabled()) return NextResponse.json({ error: "Home visits aren't open yet." }, { status: 404 });

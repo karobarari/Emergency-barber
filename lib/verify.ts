@@ -35,5 +35,5 @@ export async function getCustomer(phone: string) {
   return data as Customer | null;
 }
 
-/** Home visits unlock after a finished shop cut; blocked overrides that (SPEC-v2 §6). */
-export const homeAllowed = (c: Customer | null) => !!c && c.home_allowed && !c.blocked;
+/** Home visits are open to every verified number except blocked ones (SPEC-v2 §6). */
+export const homeAllowed = (c: Customer | null) => !c?.blocked;

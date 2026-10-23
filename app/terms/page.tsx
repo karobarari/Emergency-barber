@@ -26,7 +26,7 @@ export default function Terms() {
 
       <div className="h3">Home visits</div>
       <p>
-        Once you&apos;ve had a cut at {SHOP.name}, a barber can come to your home or office instead, within{" "}
+        A barber can come to your home or office instead, within{" "}
         {PRICING.maxDriveMiles} miles of the shop. We check your mobile number with a text code first. Home visits add a
         travel charge based on the drive from the shop:{" "}
         {PRICING.distanceSteps.map((s, i) => {
