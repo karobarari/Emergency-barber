@@ -26,7 +26,8 @@ async function cancelBooking(form: FormData) {
 
 type Search = { cancel?: string; changed?: string; failed?: string };
 
-export default async function BookingStatus({ params, searchParams }: { params: { id: string }; searchParams: Search }) {
+export default async function BookingStatus(props: { params: Promise<{ id: string }>; searchParams: Promise<Search> }) {
+  const [params, searchParams] = await Promise.all([props.params, props.searchParams]);
   if (!/^[0-9a-f-]{36}$/i.test(params.id)) notFound();
   const { data } = await db().from("bookings").select("*").eq("id", params.id).maybeSingle();
   const b = data as Booking | null;

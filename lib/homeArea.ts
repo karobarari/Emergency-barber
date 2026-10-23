@@ -15,7 +15,7 @@ export type HomeArea =
  */
 export async function homeArea(postcodeInput: string): Promise<HomeArea> {
   if (!homeVisitsEnabled()) return { ok: false, status: 404, error: "Home visits aren't open yet." };
-  const phone = verifiedPhone();
+  const phone = await verifiedPhone();
   if (!phone) return { ok: false, status: 401, error: "Your number needs checking again. Go back and enter your mobile." };
   if (!homeAllowed(await getCustomer(phone))) {
     return { ok: false, status: 403, error: "We can't book a home visit for this number. You can still book at the shop." };

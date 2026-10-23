@@ -14,22 +14,19 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "2.45.4",
-    "next": "14.2.35",
-    "react": "18.3.1",
-    "react-dom": "18.3.1",
+    "next": "16.4.2",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
     "server-only": "0.0.1",
     "stripe": "16.12.0"
   },
   "devDependencies": {
     "@types/node": "20.16.10",
     "@types/pg": "8.11.10",
-    "@types/react": "18.3.11",
-    "@types/react-dom": "18.3.0",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
     "pg": "8.13.1",
     "typescript": "5.6.2",
     "vitest": "2.1.9"
-  },
-  "overrides": {
-    "postcss": "^8.5.31"
   }
 }

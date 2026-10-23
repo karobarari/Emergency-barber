@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 // Password-protects the dispatch page. Any username, password = ADMIN_PASSWORD.
-export function middleware(req: NextRequest) {
+export function proxy(req: NextRequest) {
   const pass = process.env.ADMIN_PASSWORD;
   const auth = req.headers.get("authorization") || "";
   const [scheme, encoded] = auth.split(" ");

@@ -21,8 +21,8 @@ async function save(form: FormData) {
   revalidatePath("/admin/customers");
 }
 
-export default async function Customers({ searchParams }: { searchParams: { q?: string } }) {
-  const q = (searchParams.q ?? "").trim();
+export default async function Customers({ searchParams }: { searchParams: Promise<{ q?: string }> }) {
+  const q = ((await searchParams).q ?? "").trim();
   let query = db().from("customers").select("*").order("updated_at", { ascending: false }).limit(200);
   // Commas and brackets would break the or() filter, and nobody types them into a name or number.
   const term = q.replace(/[,()]/g, "");

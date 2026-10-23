@@ -1,7 +1,8 @@
 import { barbers, HOME_RULES, homeVisitsEnabled, mapsUrl, PRICING, RULES, SERVICES, SHOP, SLOTS } from "@/lib/config";
 import BookingFlow from "./components/BookingFlow";
 
-export default function Home({ searchParams }: { searchParams: { cancelled?: string } }) {
+export default async function Home(props: { searchParams: Promise<{ cancelled?: string }> }) {
+  const searchParams = await props.searchParams;
   return (
     <main className="wrap">
       {searchParams.cancelled && (

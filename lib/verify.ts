@@ -27,7 +27,8 @@ export async function checkCode(phone: string, code: string) {
 }
 
 /** The phone number this browser has verified in the last 30 minutes, if any. Never trust a number from the request body. */
-export const verifiedPhone = () => readToken(cookies().get(VERIFIED_COOKIE)?.value, process.env.VERIFY_TOKEN_SECRET || "");
+export const verifiedPhone = async () =>
+  readToken((await cookies()).get(VERIFIED_COOKIE)?.value, process.env.VERIFY_TOKEN_SECRET || "");
 
 export async function getCustomer(phone: string) {
   const { data, error } = await db().from("customers").select("*").eq("phone", phone).maybeSingle();

@@ -19,7 +19,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "That code isn't right, or it has expired. Check the text or send a new one." }, { status: 400 });
   }
 
-  cookies().set(VERIFIED_COOKIE, makeToken(phone, process.env.VERIFY_TOKEN_SECRET!), {
+  (await cookies()).set(VERIFIED_COOKIE, makeToken(phone, process.env.VERIFY_TOKEN_SECRET!), {
     httpOnly: true, secure: true, sameSite: "lax", path: "/", maxAge: VERIFIED_MINS * 60,
   });
   const customer = await getCustomer(phone);

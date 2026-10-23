@@ -97,7 +97,8 @@ const travelFor = (h: Hotel) => {
   return pence ? gbp(pence) : "free";
 };
 
-export default async function Hotels({ searchParams }: { searchParams: { error?: string } }) {
+export default async function Hotels(props: { searchParams: Promise<{ error?: string }> }) {
+  const searchParams = await props.searchParams;
   const { data } = await db().from("hotels").select("*").order("name");
   const rows = (data || []) as Hotel[];
   const site = process.env.SITE_URL || "";

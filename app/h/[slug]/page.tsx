@@ -9,8 +9,8 @@ export const dynamic = "force-dynamic";
 export const metadata: Metadata = { robots: { index: false, follow: false } };
 
 /** A hotel's partner link: the concierge books a cut in a guest's room (SPEC-v2 §7.2). */
-export default async function HotelBooking({ params }: { params: { slug: string } }) {
-  const hotel = await getHotel(params.slug);
+export default async function HotelBooking({ params }: { params: Promise<{ slug: string }> }) {
+  const hotel = await getHotel((await params).slug);
   if (!hotel) notFound();
   return (
     <main className="wrap">
