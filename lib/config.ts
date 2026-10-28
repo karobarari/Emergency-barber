@@ -1,3 +1,5 @@
+import { BARBER_POSTS } from "./barberPosts";
+
 export const SHOP = {
   name: "FadeMasters Hale",
   address: "313 Hale Rd, Hale Barns, Altrincham WA15 8SS",
@@ -88,10 +90,32 @@ export const SLOTS = {
 };
 
 export const barbers = () =>
-  (process.env.BARBER_NAMES || "Karo,Barber 2,Barber 3")
+  (process.env.BARBER_NAMES || "Caro,Barber 2,Barber 3")
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
+
+export type Barber = {
+  name: string;
+  photo: string | null;
+  instagram: string | null;
+  posts: { image: string; link: string }[]; // hand-picked, from lib/barberPosts.ts
+};
+
+/**
+ * The barbers as the booking page shows them. BARBER_PHOTOS (image URLs, or paths like /barbers/karo.jpg under
+ * public/) and BARBER_INSTAGRAMS (handles, with or without the @) are in the same order as BARBER_NAMES; leave an
+ * entry blank to skip it.
+ */
+export function barberProfiles(): Barber[] {
+  const list = (v?: string) => (v || "").split(",").map((s) => s.trim());
+  const photos = list(process.env.BARBER_PHOTOS);
+  const handles = list(process.env.BARBER_INSTAGRAMS);
+  return barbers().map((name, i) => {
+    const instagram = handles[i]?.replace(/^@/, "") || null;
+    return { name, photo: photos[i] || null, instagram, posts: (instagram && BARBER_POSTS[instagram]?.slice(0, 3)) || [] };
+  });
+}
 
 /**
  * Which barber tapped a Telegram button. BARBER_TELEGRAM_IDS lists each barber's Telegram user id in the same order

@@ -7,9 +7,10 @@ type Slot = { at: string; fee: number; tierLabel: string; travel?: number };
 type Night = { key: string; label: string; slots: Slot[] };
 type Area = { postcode: string; driveMinutes: number; driveMiles: number; distanceStep: number };
 type Hotel = { slug: string; name: string; travel: number; driveMinutes: number };
+type Barber = { name: string; photo: string | null; instagram: string | null; posts: { image: string; link: string }[] };
 type Props = {
   services: Service[]; fees: Fee[]; advanceDays: number; shop: string; address: string; maps: string;
-  rules: string[]; homeRules: string[]; barbers: string[]; homeEnabled: boolean;
+  rules: string[]; homeRules: string[]; barbers: Barber[]; homeEnabled: boolean;
   /** Set on a hotel's partner link (/h/[slug]): no location step, and the concierge books for a guest. */
   hotel?: Hotel;
 };
@@ -128,7 +129,7 @@ export default function BookingFlow({ services, fees, advanceDays, shop, address
     if (!r.data.allowed) return setLocked(true);
     if (r.data.name && !name) setName(r.data.name);
     // Pre-select the barber from their last cut; they can still change it.
-    if (r.data.lastBarber && barbers.includes(r.data.lastBarber)) setPreferred(r.data.lastBarber);
+    if (r.data.lastBarber && barbers.some((b) => b.name === r.data.lastBarber)) setPreferred(r.data.lastBarber);
     next();
   }
 
@@ -329,10 +330,36 @@ export default function BookingFlow({ services, fees, advanceDays, shop, address
         <button className="opt" aria-pressed={preferred === null} onClick={() => { setPreferred(null); setAllowFallback(true); }}>
           <span><b>No preference</b><small>Whoever&apos;s free first</small></span>
         </button>
-        {barbers.map((n) => (
-          <button key={n} className="opt" aria-pressed={preferred === n} onClick={() => setPreferred(n)}>
-            <span><b>{n}</b></span>
-          </button>
+        {barbers.map(({ name: n, photo, instagram, posts }) => (
+          <div key={n} className="barber">
+            <div className="pick">
+              <button className="opt" aria-pressed={preferred === n} onClick={() => setPreferred(n)}>
+                <span className="who">
+                  {photo ? <img className="pic" src={photo} alt="" /> : <span className="pic" aria-hidden>{n[0]}</span>}
+                  <span><b>{n}</b>{instagram && <small>@{instagram}</small>}</span>
+                </span>
+              </button>
+              {/* Beside the button, not in it: a link can't sit inside a button. */}
+              {instagram && (
+                <a className="ig" href={`https://instagram.com/${encodeURIComponent(instagram)}`} target="_blank"
+                  rel="noopener noreferrer" aria-label={`${n} on Instagram`}>
+                  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+                    <rect x="3" y="3" width="18" height="18" rx="5" /><circle cx="12" cy="12" r="4" />
+                    <circle cx="17.5" cy="6.5" r="1" fill="currentColor" />
+                  </svg>
+                </a>
+              )}
+            </div>
+            {posts.length > 0 && (
+              <div className="posts">
+                {posts.map((p) => (
+                  <a key={p.image} href={p.link} target="_blank" rel="noopener noreferrer" aria-label={`A post by ${n} on Instagram`}>
+                    <img src={p.image} alt="" loading="lazy" />
+                  </a>
+                ))}
+              </div>
+            )}
+          </div>
         ))}
       </div>
       {preferred && (

@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import BookingFlow from "@/app/components/BookingFlow";
-import { barbers, HOME_RULES, mapsUrl, PRICING, RULES, SERVICES, SHOP, SLOTS } from "@/lib/config";
+import { barberProfiles, HOME_RULES, mapsUrl, PRICING, RULES, SERVICES, SHOP, SLOTS } from "@/lib/config";
 import { getHotel, hotelTravel } from "@/lib/hotels";
 
 export const dynamic = "force-dynamic";
@@ -24,7 +24,7 @@ export default async function HotelBooking({ params }: { params: Promise<{ slug:
         rules={RULES}
         homeRules={HOME_RULES}
         homeEnabled={false}
-        barbers={barbers()}
+        barbers={barberProfiles()}
         hotel={{ slug: hotel.slug, name: hotel.name, travel: hotelTravel(hotel), driveMinutes: hotel.drive_minutes! }}
       />
     </main>

@@ -1,4 +1,4 @@
-import { barbers, HOME_RULES, homeVisitsEnabled, mapsUrl, PRICING, RULES, SERVICES, SHOP, SLOTS } from "@/lib/config";
+import { barberProfiles, HOME_RULES, homeVisitsEnabled, mapsUrl, PRICING, RULES, SERVICES, SHOP, SLOTS } from "@/lib/config";
 import BookingFlow from "./components/BookingFlow";
 
 export default async function Home(props: { searchParams: Promise<{ cancelled?: string }> }) {
@@ -18,7 +18,7 @@ export default async function Home(props: { searchParams: Promise<{ cancelled?: 
         rules={RULES}
         homeRules={HOME_RULES}
         homeEnabled={homeVisitsEnabled()}
-        barbers={barbers()}
+        barbers={barberProfiles()}
       />
     </main>
   );
