@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { blockFor } from "@/lib/capacity";
-import { barbers, CANCEL_CUTOFF_MINS, CAPACITY, gbp, LATE_GRACE_MINS, OPERATOR, SERVICES, SHOP } from "@/lib/config";
+import { barbers, CANCEL_CUTOFF_MINS, CAPACITY, gbp, LATE_GRACE_MINS, OPERATOR, BOOKABLE_SERVICES, SHOP } from "@/lib/config";
 import { homeArea } from "@/lib/homeArea";
 import { getHotel, hotelTrip } from "@/lib/hotels";
 import { quote } from "@/lib/pricing";
@@ -18,7 +18,7 @@ const bad = (error: string, status = 400) => {
 
 export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}));
-  const service = SERVICES.find((s) => s.id === body.serviceId);
+  const service = BOOKABLE_SERVICES.find((s) => s.id === body.serviceId);
   if (!service) return bad("Choose a service.");
   const name = String(body.name || "").trim().slice(0, 80);
   if (!name) return bad("Add your name.");

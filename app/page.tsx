@@ -1,4 +1,4 @@
-import { barberProfiles, HOME_RULES, homeVisitsEnabled, mapsUrl, PRICING, RULES, SERVICES, SHOP, SLOTS } from "@/lib/config";
+import { barberProfiles, HOME_RULES, homeVisitsEnabled, mapsUrl, PRICING, RULES, BOOKABLE_SERVICES, SHOP, SLOTS } from "@/lib/config";
 import BookingFlow from "./components/BookingFlow";
 
 export default async function Home(props: { searchParams: Promise<{ cancelled?: string }> }) {
@@ -9,7 +9,7 @@ export default async function Home(props: { searchParams: Promise<{ cancelled?: 
         <div className="banner">Request cancelled. Nothing was held on your card and the slot has been released.</div>
       )}
       <BookingFlow
-        services={SERVICES.map((s) => ({ ...s }))}
+        services={BOOKABLE_SERVICES.map((s) => ({ ...s }))}
         fees={PRICING.advanceFees.map(({ minHoursAhead, fee }) => ({ minHoursAhead, fee }))}
         advanceDays={SLOTS.advanceDays}
         shop={SHOP.name}

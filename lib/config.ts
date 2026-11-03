@@ -71,6 +71,10 @@ export const SERVICES = [
 
 export type ServiceId = (typeof SERVICES)[number]["id"];
 
+/** Hidden from customers and refused at checkout. Stays in SERVICES so bookings already made still work. */
+const PAUSED_SERVICES: ServiceId[] = ["premium"];
+export const BOOKABLE_SERVICES = SERVICES.filter((s) => !PAUSED_SERVICES.includes(s.id));
+
 /**
  * How many bookings can run at once (see lib/capacity.ts). Home and hotel visits always leave one barber free,
  * so the shop gets priority.

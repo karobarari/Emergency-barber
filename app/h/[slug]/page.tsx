@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import BookingFlow from "@/app/components/BookingFlow";
-import { barberProfiles, HOME_RULES, mapsUrl, PRICING, RULES, SERVICES, SHOP, SLOTS } from "@/lib/config";
+import { barberProfiles, HOME_RULES, mapsUrl, PRICING, RULES, BOOKABLE_SERVICES, SHOP, SLOTS } from "@/lib/config";
 import { getHotel, hotelTravel } from "@/lib/hotels";
 
 export const dynamic = "force-dynamic";
@@ -15,7 +15,7 @@ export default async function HotelBooking({ params }: { params: Promise<{ slug:
   return (
     <main className="wrap">
       <BookingFlow
-        services={SERVICES.map((s) => ({ ...s }))}
+        services={BOOKABLE_SERVICES.map((s) => ({ ...s }))}
         fees={PRICING.advanceFees.map(({ minHoursAhead, fee }) => ({ minHoursAhead, fee }))}
         advanceDays={SLOTS.advanceDays}
         shop={SHOP.name}

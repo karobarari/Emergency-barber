@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { SERVICES } from "@/lib/config";
+import { BOOKABLE_SERVICES } from "@/lib/config";
 import { homeArea } from "@/lib/homeArea";
 import { getHotel, hotelTravel } from "@/lib/hotels";
 import { advanceBand } from "@/lib/pricing";
@@ -15,7 +15,7 @@ export const dynamic = "force-dynamic";
 export async function GET(req: Request) {
   const params = new URL(req.url).searchParams;
   const serviceId = params.get("service");
-  if (!SERVICES.some((s) => s.id === serviceId)) return NextResponse.json({ error: "Choose a service." }, { status: 400 });
+  if (!BOOKABLE_SERVICES.some((s) => s.id === serviceId)) return NextResponse.json({ error: "Choose a service." }, { status: 400 });
   const now = new Date();
   let travel = 0;
   let want: Parameters<typeof freeSlots>[1] = { serviceId: serviceId! };
