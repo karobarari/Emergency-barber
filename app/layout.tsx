@@ -7,7 +7,7 @@ export const metadata: Metadata = {
   description: `Book an out-of-hours haircut at ${SHOP.name} with an hour's notice.`,
 };
 
-export const viewport: Viewport = { width: "device-width", initialScale: 1, viewportFit: "cover" };
+export const viewport: Viewport = { width: "device-width", initialScale: 1, viewportFit: "cover", themeColor: "#f2f2f2" };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (

@@ -173,7 +173,7 @@ export default function BookingFlow({ services, fees, advanceDays, shop, address
       {head}
       <h2>Need a cut out of hours?</h2>
       <p className="lead">Tonight or up to {advanceDays} days ahead. Send a request, and pay only when a barber accepts.</p>
-      <label className="f">Where do you want your cut?</label>
+      <label className="f">Choose a location</label>
       <div className="opts">
         <button className="opt" aria-pressed={mode === "shop"} onClick={() => setMode("shop")}>
           <span><b>At {shop}</b><small>A barber opens the shop just for you</small></span>
@@ -225,7 +225,7 @@ export default function BookingFlow({ services, fees, advanceDays, shop, address
   if (step === "address") return (
     <>
       {head}
-      <h2>Where should the barber come?</h2>
+      <h2>Your address</h2>
       <p className="lead">Travel is priced on the drive from {shop}. We cover up to 13 miles.</p>
       <label className="f" htmlFor="st">First line of address</label>
       <input className="t" id="st" autoComplete="address-line1" value={street} onChange={(e) => setStreet(e.target.value)} />
@@ -250,7 +250,7 @@ export default function BookingFlow({ services, fees, advanceDays, shop, address
   if (step === "service") return (
     <>
       {head}
-      <h2>{hotel ? `Book a cut for a guest at ${hotel.name}` : "What do you need?"}</h2>
+      <h2>{hotel ? `Book a cut for a guest at ${hotel.name}` : "Choose a service"}</h2>
       {hotel && (
         <p className="lead">
           A barber comes to the guest&apos;s room, tonight or up to {advanceDays} days ahead. The hold goes on your card and is
@@ -285,7 +285,7 @@ export default function BookingFlow({ services, fees, advanceDays, shop, address
   if (step === "time") return (
     <>
       {head}
-      <h2>{mode === "shop" ? "When can you get here?" : "When should the barber arrive?"}</h2>
+      <h2>Choose a time</h2>
       <p className="lead">{mode === "shop" ? "Pick an evening, then a time. Leave time to drive and park." : "Pick an evening, then a time."}</p>
       {error && <p className="err">{error}</p>}
       {nights === null ? <p className="lead">Checking free times…</p> : (
@@ -324,7 +324,7 @@ export default function BookingFlow({ services, fees, advanceDays, shop, address
   if (step === "barber") return (
     <>
       {head}
-      <h2>Do you have a preferred barber?</h2>
+      <h2>Choose your barber</h2>
       <p className="lead">We ask them first. You&apos;re only charged once a barber accepts.</p>
       <div className="opts">
         <button className="opt" aria-pressed={preferred === null} onClick={() => { setPreferred(null); setAllowFallback(true); }}>
@@ -383,7 +383,7 @@ export default function BookingFlow({ services, fees, advanceDays, shop, address
   if (step === "details") return (
     <>
       {head}
-      <h2>{atHotel ? "Your details" : home ? "Who's having the cut?" : "Who's coming in?"}</h2>
+      <h2>Your details</h2>
       <p className="lead">
         {atHotel ? "We text this number when a barber accepts, sets off and arrives, so it's best on the desk's mobile."
           : home ? `We text ${phone} when your barber is confirmed and on the way.` : "We text this number when your barber is confirmed."}
@@ -405,7 +405,7 @@ export default function BookingFlow({ services, fees, advanceDays, shop, address
   if (step === "guest") return (
     <>
       {head}
-      <h2>Who&apos;s the guest?</h2>
+      <h2>Guest details</h2>
       <p className="lead">The barber goes to the room and asks for the guest by name.</p>
       <label className="f" htmlFor="gn">Guest&apos;s name</label>
       <input className="t" id="gn" value={guestName} onChange={(e) => setGuestName(e.target.value)} />
