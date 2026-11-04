@@ -1,4 +1,4 @@
-# Emergency Barber App
+# Suite Cut
 
 A booking web app for urgent, out-of-hours haircuts. Customers get a premium cut at short notice; barbers earn extra on their own schedule.
 

@@ -1,9 +1,9 @@
 import type { Metadata, Viewport } from "next";
-import { SHOP } from "@/lib/config";
+import { OPERATOR, SHOP } from "@/lib/config";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: `Late Night Cuts · ${SHOP.name}`,
+  title: `${OPERATOR.trading} · ${SHOP.name}`,
   description: `Book an out-of-hours haircut at ${SHOP.name} with an hour's notice.`,
 };
 
@@ -26,7 +26,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <div className="brand">
               <div className="pole" aria-hidden="true" />
               <div>
-                <h1>Emergency Barber</h1>
+                <h1>{OPERATOR.trading}</h1>
                 <small>{SHOP.name} · in the chair within the hour</small>
               </div>
             </div>

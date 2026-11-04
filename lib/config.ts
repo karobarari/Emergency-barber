@@ -19,7 +19,7 @@ export const homeVisitsEnabled = () =>
 /** Who runs the service, for the terms and privacy notice. */
 export const OPERATOR = {
   name: "Karo Barari",
-  trading: "Emergency Barber",
+  trading: "Suite Cut",
   email: "karobarari@gmail.com",
   retentionYears: 6, // HMRC wants financial records kept for 6 years
 };
